@@ -49,6 +49,7 @@ This is a policy-path review, not an executed application test. Runtime tests re
 ## Artifacts created in Phase 0
 
 - `.gitignore`
+- `.gitattributes`
 - `docs/project-status.md`
 - `docs/blockers.md`
 - `docs/requirements-traceability.md`

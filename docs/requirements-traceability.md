@@ -31,4 +31,3 @@ No implementation or test status is claimed in this Phase 0 baseline.
 | G-02 | Independent `disable_topups`, `disable_charges`, `disable_payouts`, market and vendor circuit breakers | 2, 4, 5, 7 | NOT_STARTED | Pending |
 | S-01 | Threat model and tests covering tenancy, SSRF, malicious supplier, forged usage, replay, ATO, payout changes, admin abuse, supply chain and secret leakage | 2, 7, 8 | NOT_STARTED | `docs/security/risk-register.md` records initial risks only |
 | R-01 | Reproducible market builds, SBOM, provenance, checksums, scans and release evidence | 6, 7, 8, 9 | NOT_STARTED | Pending |
-

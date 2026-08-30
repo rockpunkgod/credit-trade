@@ -24,4 +24,3 @@ This is a design-stage register. “Required control” does not mean the contro
 | SEC-16 | Backup exposes data or cannot restore consistent ledger | Regional encrypted backups, access separation, point-in-time recovery and restore drills | OPEN |
 
 No Critical/High finding can be declared resolved until its control is implemented and the named evidence is executed.
-

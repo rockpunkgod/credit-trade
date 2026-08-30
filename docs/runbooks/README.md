@@ -19,4 +19,3 @@ No operational runbook is complete in Phase 0. The following runbooks are requir
 - GitHub RC/GA release and rollback.
 
 Each runbook must name the trigger, authority, two-person steps where required, observable evidence, stop conditions, rollback, communications and post-incident review.
-

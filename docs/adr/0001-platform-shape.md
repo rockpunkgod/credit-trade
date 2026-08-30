@@ -36,4 +36,3 @@ Regional failover will never move inference traffic, logs, data or funds to anot
 ## Not decided here
 
 Package versions, cloud provider, production payment/KYC/tax vendors, inference vendors, exact US states/EU member states, operating entities, currencies, retention periods and subprocessors remain unresolved.
-
