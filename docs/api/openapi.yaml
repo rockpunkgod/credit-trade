@@ -1,0 +1,937 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: Credit Trade Local Sandbox API
+  version: 0.0.1-sandbox
+  description: |
+    Implemented loopback-only API for the synthetic Credit Trade vertical slice.
+    It uses mock inference endpoints and an in-memory ledger. It has no real
+    provider, payment rail, production credential, or production-payment unlock.
+
+    Missing or unreviewed vendor and market evidence remains PENDING_REVIEW.
+    PROHIBITED is reserved for a prohibition explicit in a current official
+    source; neither status enables production operation.
+servers:
+  - url: http://127.0.0.1:3000
+    description: Default local process
+tags:
+  - name: Status
+  - name: Sandbox setup
+  - name: Inference
+  - name: Sandbox inspection
+paths:
+  /health:
+    get:
+      tags: [Status]
+      operationId: getHealth
+      summary: Read the local sandbox and production-payment lock state
+      responses:
+        '200':
+          description: Sandbox process is ready.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            X-Sandbox-Mode:
+              $ref: '#/components/headers/SandboxMode'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /sandbox/suppliers:
+    post:
+      tags: [Sandbox setup]
+      operationId: createSandboxSupplier
+      summary: Create a synthetic supplier
+      description: Creates an in-memory sandbox record; it does not perform real KYB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSupplier'
+      responses:
+        '201':
+          description: Synthetic supplier created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          $ref: '#/components/responses/BodyTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /sandbox/suppliers/{supplierId}/endpoints:
+    post:
+      tags: [Sandbox setup]
+      operationId: registerSandboxEndpointAndPrice
+      summary: Register a supplier endpoint and its model price
+      description: |
+        Registers an endpoint and publishes one exact string-denominated sandbox
+        model price. Only built-in mock schemes can complete inference. Registering
+        or identifying an endpoint is not vendor authorization or market admission.
+      parameters:
+        - $ref: '#/components/parameters/SupplierId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterEndpoint'
+      responses:
+        '201':
+          description: Endpoint and immutable sandbox price created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EndpointPriceEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/BodyTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /sandbox/buyers:
+    post:
+      tags: [Sandbox setup]
+      operationId: createSandboxBuyer
+      summary: Create a synthetic buyer and an API key disclosed only once
+      description: |
+        The initial balance is an in-memory accounting fixture, not money, stored
+        value, a transferable wallet, or payment-provider sandbox funding. The raw
+        API key appears only in this response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBuyer'
+      responses:
+        '201':
+          description: Synthetic buyer created; the raw API key is disclosed in this response only.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuyerEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          $ref: '#/components/responses/BodyTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/quotes:
+    post:
+      tags: [Inference]
+      operationId: createQuote
+      summary: Create a buyer-bound versioned quote with a maximum hold amount
+      description: Calculates the maximum hold amount but does not post a hold journal until inference starts.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateQuote'
+      responses:
+        '201':
+          description: Quote created with a calculated maximum hold amount; no funds are moved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/BodyTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/inference:
+    post:
+      tags: [Inference]
+      operationId: runInference
+      summary: Execute one quote-bound synthetic inference
+      description: The sandbox never sends the prompt to a real provider.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunInference'
+      responses:
+        '200':
+          description: Synthetic inference metered and settled exactly once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InferenceEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/BodyTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /sandbox/state:
+    get:
+      tags: [Sandbox inspection]
+      operationId: getSandboxState
+      summary: Read a redacted in-memory domain snapshot
+      description: API keys, hashes, credentials, authorization fields, secrets, and prompts are removed.
+      responses:
+        '200':
+          description: Redacted sandbox state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StateEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /sandbox/ledger:
+    get:
+      tags: [Sandbox inspection]
+      operationId: getSandboxLedger
+      summary: Read the redacted balanced sandbox ledger
+      responses:
+        '200':
+          description: Ledger snapshot; balanced is true only when every journal balances.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: CreditTradeSandboxApiKey
+      description: Sandbox buyer API key disclosed only at creation. Never send a production credential.
+  parameters:
+    SupplierId:
+      name: supplierId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Identifier'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Reusing a key with different input is rejected.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+  headers:
+    RequestId:
+      description: Request correlation identifier.
+      schema:
+        type: string
+        format: uuid
+    SandboxMode:
+      description: Always true for this server.
+      schema:
+        type: string
+        const: 'true'
+  responses:
+    BadRequest:
+      description: Invalid target, query, JSON, field, content length, or idempotency key.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: Bearer key is missing, malformed, or invalid.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: The selected endpoint does not belong to the requested supplier.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: Route or requested sandbox record was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: Quote, balance, or idempotency state conflicts with the request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    BodyTooLarge:
+      description: JSON request body exceeds 65536 bytes.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UnsupportedMedia:
+      description: Body is not uncompressed application/json.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unprocessable:
+      description: No eligible sandbox route or endpoint is not routable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    InternalError:
+      description: Redacted unexpected failure.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+  schemas:
+    Identifier:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+    DecimalInteger:
+      type: string
+      description: Non-negative base-10 integer; JSON numbers are rejected.
+      pattern: '^(0|[1-9][0-9]{0,29})$'
+    TokenCount:
+      type: string
+      description: Non-negative token limit no greater than the sandbox cap of 10000000.
+      pattern: '^(0|[1-9][0-9]{0,6}|10000000)$'
+    Currency:
+      type: string
+      pattern: '^[A-Z]{3}$'
+    Health:
+      type: object
+      additionalProperties: false
+      required: [sandbox, status, productionPaymentsEnabled, bindPolicy]
+      properties:
+        sandbox:
+          type: boolean
+          const: true
+        status:
+          type: string
+          const: ok
+        productionPaymentsEnabled:
+          type: boolean
+          const: false
+        bindPolicy:
+          type: string
+          const: loopback-only
+    CreateSupplier:
+      type: object
+      additionalProperties: true
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+    RegisterEndpoint:
+      type: object
+      additionalProperties: true
+      required:
+        - url
+        - model
+        - currency
+        - inputTokenPriceMinor
+        - outputTokenPriceMinor
+      properties:
+        url:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          examples: [mock://acme-ai]
+        declaredVendor:
+          type: string
+          minLength: 1
+          maxLength: 128
+        model:
+          type: string
+          minLength: 1
+          maxLength: 256
+        currency:
+          $ref: '#/components/schemas/Currency'
+        inputTokenPriceMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        outputTokenPriceMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+    CreateBuyer:
+      type: object
+      additionalProperties: true
+      required: [name, currency, initialBalanceMinor]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+        currency:
+          $ref: '#/components/schemas/Currency'
+        initialBalanceMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+    CreateQuote:
+      type: object
+      additionalProperties: true
+      required: [supplierId, endpointId, model, maxInputTokens, maxOutputTokens]
+      properties:
+        supplierId:
+          $ref: '#/components/schemas/Identifier'
+        endpointId:
+          $ref: '#/components/schemas/Identifier'
+        model:
+          type: string
+          minLength: 1
+          maxLength: 256
+        maxInputTokens:
+          $ref: '#/components/schemas/TokenCount'
+        maxOutputTokens:
+          $ref: '#/components/schemas/TokenCount'
+    RunInference:
+      type: object
+      additionalProperties: true
+      required: [quoteId, prompt]
+      properties:
+        quoteId:
+          $ref: '#/components/schemas/Identifier'
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 32768
+    Supplier:
+      type: object
+      additionalProperties: false
+      required: [supplierId, name, kybStatus, createdAt]
+      properties:
+        supplierId:
+          $ref: '#/components/schemas/Identifier'
+        name:
+          type: string
+        kybStatus:
+          type: string
+          const: SANDBOX_FIXTURE
+          description: Synthetic fixture state; it is not real KYB approval.
+        createdAt:
+          type: string
+          format: date-time
+    Endpoint:
+      type: object
+      additionalProperties: false
+      required:
+        - endpointId
+        - supplierId
+        - url
+        - detectionStatus
+        - evidenceStatus
+        - sandboxRoutable
+        - createdAt
+      properties:
+        endpointId:
+          $ref: '#/components/schemas/Identifier'
+        supplierId:
+          $ref: '#/components/schemas/Identifier'
+        url:
+          type: string
+        declaredVendor:
+          type: string
+          description: Normalized supplier claim; omitted when none was supplied.
+        detectedVendor:
+          type: string
+          description: Technical sandbox classification such as ACME_AI; not legal authorization.
+        detectionStatus:
+          type: string
+          enum: [VERIFIED_SANDBOX, UNIDENTIFIED, CONFLICT]
+        evidenceStatus:
+          type: string
+          enum: [PENDING_REVIEW, PROHIBITED]
+        sandboxRoutable:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    Price:
+      type: object
+      additionalProperties: false
+      required:
+        - priceId
+        - supplierId
+        - endpointId
+        - model
+        - currency
+        - inputTokenPriceMinor
+        - outputTokenPriceMinor
+        - version
+        - effectiveAt
+      properties:
+        priceId:
+          $ref: '#/components/schemas/Identifier'
+        supplierId:
+          $ref: '#/components/schemas/Identifier'
+        endpointId:
+          $ref: '#/components/schemas/Identifier'
+        model:
+          type: string
+        currency:
+          $ref: '#/components/schemas/Currency'
+        inputTokenPriceMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        outputTokenPriceMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        version:
+          $ref: '#/components/schemas/DecimalInteger'
+        effectiveAt:
+          type: string
+          format: date-time
+    Buyer:
+      type: object
+      additionalProperties: false
+      required:
+        - buyerId
+        - name
+        - currency
+        - availableBalanceMinor
+        - reservedBalanceMinor
+        - createdAt
+      properties:
+        buyerId:
+          $ref: '#/components/schemas/Identifier'
+        name:
+          type: string
+        currency:
+          $ref: '#/components/schemas/Currency'
+        availableBalanceMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        reservedBalanceMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        createdAt:
+          type: string
+          format: date-time
+    BuyerWithKey:
+      type: object
+      required: [buyer, apiKey]
+      properties:
+        buyer:
+          $ref: '#/components/schemas/Buyer'
+        apiKey:
+          type: string
+          minLength: 8
+          readOnly: true
+          description: Returned only at buyer creation; snapshots remove it and its hash.
+      additionalProperties: false
+    Quote:
+      type: object
+      additionalProperties: false
+      required:
+        - quoteId
+        - buyerId
+        - supplierId
+        - endpointId
+        - detectedVendor
+        - model
+        - currency
+        - maxInputTokens
+        - maxOutputTokens
+        - inputTokenPriceMinor
+        - outputTokenPriceMinor
+        - supplierMaxCostMinor
+        - platformFeeBps
+        - platformMaxFeeMinor
+        - maxHoldMinor
+        - priceId
+        - priceVersion
+        - createdAt
+        - expiresAt
+        - status
+      properties:
+        quoteId:
+          $ref: '#/components/schemas/Identifier'
+        buyerId:
+          $ref: '#/components/schemas/Identifier'
+        supplierId:
+          $ref: '#/components/schemas/Identifier'
+        endpointId:
+          $ref: '#/components/schemas/Identifier'
+        detectedVendor:
+          type: string
+        model:
+          type: string
+        currency:
+          $ref: '#/components/schemas/Currency'
+        maxInputTokens:
+          $ref: '#/components/schemas/TokenCount'
+        maxOutputTokens:
+          $ref: '#/components/schemas/TokenCount'
+        inputTokenPriceMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        outputTokenPriceMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        supplierMaxCostMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        platformFeeBps:
+          $ref: '#/components/schemas/DecimalInteger'
+        platformMaxFeeMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        maxHoldMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        priceId:
+          $ref: '#/components/schemas/Identifier'
+        priceVersion:
+          $ref: '#/components/schemas/DecimalInteger'
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [ISSUED, USED]
+    Usage:
+      type: object
+      additionalProperties: false
+      required: [inputTokens, outputTokens, totalTokens]
+      properties:
+        inputTokens:
+          $ref: '#/components/schemas/DecimalInteger'
+        outputTokens:
+          $ref: '#/components/schemas/DecimalInteger'
+        totalTokens:
+          $ref: '#/components/schemas/DecimalInteger'
+    Inference:
+      type: object
+      additionalProperties: false
+      required:
+        - sandbox
+        - inferenceId
+        - quoteId
+        - supplierId
+        - endpointId
+        - vendor
+        - model
+        - output
+        - usage
+        - currency
+        - supplierCostMinor
+        - platformFeeMinor
+        - buyerChargeMinor
+        - ledgerJournalIds
+        - createdAt
+      properties:
+        sandbox:
+          type: boolean
+          const: true
+        inferenceId:
+          $ref: '#/components/schemas/Identifier'
+        quoteId:
+          $ref: '#/components/schemas/Identifier'
+        supplierId:
+          $ref: '#/components/schemas/Identifier'
+        endpointId:
+          $ref: '#/components/schemas/Identifier'
+        vendor:
+          type: string
+        model:
+          type: string
+        output:
+          type: string
+          description: Synthetic output; state and ledger inspection routes redact prompt-like fields.
+        usage:
+          $ref: '#/components/schemas/Usage'
+        currency:
+          $ref: '#/components/schemas/Currency'
+        supplierCostMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        platformFeeMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        buyerChargeMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        ledgerJournalIds:
+          type: array
+          items:
+            $ref: '#/components/schemas/Identifier'
+        createdAt:
+          type: string
+          format: date-time
+    LedgerPosting:
+      type: object
+      additionalProperties: false
+      required: [account, direction, amountMinor]
+      properties:
+        account:
+          type: string
+        direction:
+          type: string
+          enum: [DEBIT, CREDIT]
+        amountMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+    LedgerJournal:
+      type: object
+      additionalProperties: false
+      required: [journalId, eventType, currency, businessKey, postings, createdAt]
+      properties:
+        journalId:
+          $ref: '#/components/schemas/Identifier'
+        eventType:
+          type: string
+          enum: [SANDBOX_FUNDING, HOLD_PLACED, INFERENCE_SETTLED, HOLD_RELEASED]
+        currency:
+          $ref: '#/components/schemas/Currency'
+        businessKey:
+          type: string
+        postings:
+          type: array
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/LedgerPosting'
+        createdAt:
+          type: string
+          format: date-time
+    Ledger:
+      type: object
+      additionalProperties: false
+      required: [balanced, journals]
+      properties:
+        balanced:
+          type: boolean
+        journals:
+          type: array
+          items:
+            $ref: '#/components/schemas/LedgerJournal'
+    StateInference:
+      type: object
+      additionalProperties: false
+      required:
+        - inferenceId
+        - quoteId
+        - supplierId
+        - endpointId
+        - vendor
+        - model
+        - usage
+        - currency
+        - buyerChargeMinor
+        - createdAt
+      properties:
+        inferenceId:
+          $ref: '#/components/schemas/Identifier'
+        quoteId:
+          $ref: '#/components/schemas/Identifier'
+        supplierId:
+          $ref: '#/components/schemas/Identifier'
+        endpointId:
+          $ref: '#/components/schemas/Identifier'
+        vendor:
+          type: string
+        model:
+          type: string
+        usage:
+          $ref: '#/components/schemas/Usage'
+        currency:
+          $ref: '#/components/schemas/Currency'
+        buyerChargeMinor:
+          $ref: '#/components/schemas/DecimalInteger'
+        createdAt:
+          type: string
+          format: date-time
+    SandboxState:
+      type: object
+      additionalProperties: false
+      required:
+        - sandbox
+        - productionPaymentsEnabled
+        - productionVendorRoutesEnabled
+        - unknownVendorPolicy
+        - suppliers
+        - endpoints
+        - prices
+        - buyers
+        - quotes
+        - inferences
+      properties:
+        sandbox:
+          type: boolean
+          const: true
+        productionPaymentsEnabled:
+          type: boolean
+          const: false
+        productionVendorRoutesEnabled:
+          type: boolean
+          const: false
+        unknownVendorPolicy:
+          type: string
+          const: PENDING_REVIEW
+        suppliers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Supplier'
+        endpoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/Endpoint'
+        prices:
+          type: array
+          items:
+            $ref: '#/components/schemas/Price'
+        buyers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Buyer'
+        quotes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Quote'
+        inferences:
+          type: array
+          items:
+            $ref: '#/components/schemas/StateInference'
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [sandbox, error, requestId]
+      properties:
+        sandbox:
+          type: boolean
+          const: true
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+        requestId:
+          type: string
+          format: uuid
+    SupplierEnvelope:
+      $ref: '#/components/schemas/SuccessSupplier'
+    SuccessSupplier:
+      type: object
+      additionalProperties: false
+      required: [sandbox, data]
+      properties:
+        sandbox:
+          type: boolean
+          const: true
+        data:
+          $ref: '#/components/schemas/Supplier'
+    EndpointPriceEnvelope:
+      type: object
+      additionalProperties: false
+      required: [sandbox, data]
+      properties:
+        sandbox:
+          type: boolean
+          const: true
+        data:
+          type: object
+          additionalProperties: false
+          required: [endpoint, price]
+          properties:
+            endpoint:
+              $ref: '#/components/schemas/Endpoint'
+            price:
+              $ref: '#/components/schemas/Price'
+    BuyerEnvelope:
+      type: object
+      additionalProperties: false
+      required: [sandbox, data]
+      properties:
+        sandbox:
+          type: boolean
+          const: true
+        data:
+          $ref: '#/components/schemas/BuyerWithKey'
+    QuoteEnvelope:
+      type: object
+      additionalProperties: false
+      required: [sandbox, data]
+      properties:
+        sandbox:
+          type: boolean
+          const: true
+        data:
+          $ref: '#/components/schemas/Quote'
+    InferenceEnvelope:
+      type: object
+      additionalProperties: false
+      required: [sandbox, data]
+      properties:
+        sandbox:
+          type: boolean
+          const: true
+        data:
+          $ref: '#/components/schemas/Inference'
+    StateEnvelope:
+      type: object
+      additionalProperties: false
+      required: [sandbox, data]
+      properties:
+        sandbox:
+          type: boolean
+          const: true
+        data:
+          $ref: '#/components/schemas/SandboxState'
+    LedgerEnvelope:
+      type: object
+      additionalProperties: false
+      required: [sandbox, data]
+      properties:
+        sandbox:
+          type: boolean
+          const: true
+        data:
+          $ref: '#/components/schemas/Ledger'
