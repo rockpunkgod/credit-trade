@@ -1,0 +1,29 @@
+node_modules/
+.pnpm-store/
+dist/
+build/
+coverage/
+.turbo/
+.cache/
+*.log
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime state and local data
+data/
+tmp/
+.tmp/
+
+# IDE and OS metadata
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
