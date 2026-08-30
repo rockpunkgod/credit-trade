@@ -1,5 +1,7 @@
 # Credit Trade
 
+[简体中文](README.zh-CN.md)
+
 Credit Trade is a local sandbox for a vendor-neutral marketplace of authorized API inference services. A supplier registers an endpoint it controls, the platform classifies the mock service, a buyer receives a versioned quote, and a synthetic inference call is metered and posted to a balanced double-entry ledger.
 
 This repository does **not** trade API credits, consumer subscriptions, promotional balances, or transferable stored value.
