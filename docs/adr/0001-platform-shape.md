@@ -19,7 +19,8 @@ Use a TypeScript monorepo with:
 - OpenTelemetry for redacted metrics, logs and traces;
 - Docker Compose for the local demonstration environment;
 - versioned `marketpacks/cn-mainland`, `marketpacks/hk`, `marketpacks/sg`, `marketpacks/us/<state>`, and `marketpacks/eu/<member-state>` packages;
-- provider, payment, identity-verification, tax and evidence interfaces with simulated/sandbox implementations first.
+- a supplier endpoint registry in the control plane and market-scoped endpoint egress connectors in the data plane;
+- provider-identification, payment, identity-verification, tax and evidence interfaces with simulated/sandbox implementations first.
 
 Production payment admission will be denied by default. Admission will require a server-verified evidence allowlist, separation of duties, two-person approval and immutable audit records. A front-end switch or ordinary environment variable cannot grant admission.
 
@@ -31,6 +32,7 @@ Regional failover will never move inference traffic, logs, data or funds to anot
 - Market builds and deployment credentials must be independently scoped.
 - PostgreSQL remains authoritative; queues and networks are treated as at-least-once delivery.
 - Financial effects require idempotency keys, unique constraints, database transactions, outbox/inbox records and compensating entries.
+- Protocol detection, upstream-vendor identity, authorization and price authority remain separate decisions; see ADR 0002.
 - Phase 2 must decide whether physical database separation is mandatory for each deployment or whether a tested strong logical boundary is acceptable for a specific non-production environment.
 
 ## Not decided here
