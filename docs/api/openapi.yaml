@@ -407,8 +407,10 @@ components:
           $ref: '#/components/schemas/Currency'
         inputTokenPriceMinor:
           $ref: '#/components/schemas/DecimalInteger'
+          description: Synthetic minor-currency units charged by the supplier per input token.
         outputTokenPriceMinor:
           $ref: '#/components/schemas/DecimalInteger'
+          description: Synthetic minor-currency units charged by the supplier per output token.
     CreateBuyer:
       type: object
       additionalProperties: true
@@ -527,8 +529,10 @@ components:
           $ref: '#/components/schemas/Currency'
         inputTokenPriceMinor:
           $ref: '#/components/schemas/DecimalInteger'
+          description: Immutable synthetic minor-currency units per input token.
         outputTokenPriceMinor:
           $ref: '#/components/schemas/DecimalInteger'
+          description: Immutable synthetic minor-currency units per output token.
         version:
           $ref: '#/components/schemas/DecimalInteger'
         effectiveAt:

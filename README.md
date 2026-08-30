@@ -10,7 +10,7 @@ This repository does **not** trade API credits, consumer subscriptions, promotio
 |---|---|
 | Supplier and buyer workflow | Local synthetic sandbox only |
 | Inference provider | Mock endpoint only; no real provider is enabled |
-| Buyer funding and supplier payout | Simulated ledger entries only; no money moves |
+| Buyer funding and supplier earnings | Simulated ledger entries only; payout is not implemented and no money moves |
 | Production payments | Unavailable and fail-closed |
 | Market admission | `PENDING_REVIEW` for every unknown or unreviewed combination |
 | GitHub release | Not published |
