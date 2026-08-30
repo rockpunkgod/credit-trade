@@ -10,7 +10,7 @@ Last updated: 2026-08-30 (Asia/Shanghai)
 - Release state: no RC or GA exists; no completion-state claim is applicable yet.
 - Code status: initial in-memory TypeScript sandbox implemented and exercised through the HTTP API.
 - Payment status: synthetic buyer funding, hold, settlement and release are implemented in an in-memory balanced ledger. No payment-provider sandbox is integrated or verified.
-- GitHub status: no remote repository, tag, or Release has been created or verified.
+- GitHub status: private repository `rockpunkgod/credit-trade` and remote `main` are verified. No tag or GitHub Release has been created.
 - Legal/operational status: no market has supplied the evidence required for real-money operation.
 - Live-transaction status: no real-money transaction is authorized or has been attempted.
 
@@ -69,9 +69,9 @@ Technical identification does not establish authorization or price authority. Un
 3. The shared core will have separate control-plane and inference data-plane services, PostgreSQL, Redis, OpenTelemetry, and Docker Compose unless measurements in Phase 2 justify a change.
 4. Initial integrations will use simulated supplier endpoints and sandbox/example identification adapters. No detected vendor or endpoint becomes a production route without corroborated control, written permission and market admission.
 5. All five requested markets remain fail-closed for real payments. Missing evidence is treated as `PENDING_REVIEW`.
-6. `main` may be used as a provisional local branch name; it is not a confirmed GitHub default branch.
+6. `main` is the verified GitHub default branch for the private repository.
 7. Platform fees, funding/payout thresholds, settlement cycle, refund/chargeback/reserve rules, and performance targets remain configurable placeholders until supplied.
-8. Any future GitHub repository and Release must remain private. This does not itself authorize repository creation, push, tagging, Release creation, paid resources, real payments, production deployment, or container push.
+8. The current GitHub repository must remain private. The user authorized private-repository creation and pushes to `main` on 2026-08-30; this does not authorize tagging, Release creation, container publication, paid resources, real payments, or production deployment.
 
 ## Immediate next work
 
@@ -79,4 +79,4 @@ The code-first next slice is persistence, automatic eligible-offer routing, stre
 
 ## Recovery point
 
-The immutable Phase 0 recovery point is local commit `2f509eb23ef14dbd43f77172fd6947a78f573b71`. Its files are listed in `docs/phase-0-baseline.md` and hashed by `docs/evidence/phase-0.sha256`. Later working-tree versions are expected to differ. There is no remote recovery point.
+The immutable Phase 0 recovery point is local commit `2f509eb23ef14dbd43f77172fd6947a78f573b71`. Its files are listed in `docs/phase-0-baseline.md` and hashed by `docs/evidence/phase-0.sha256`. The first independently verified remote recovery point is commit `a4ef4925cad1f49319a1c9f7900572836ab6fa0c` on `origin/main`; later verified pushes may advance that branch without changing the Phase 0 evidence.

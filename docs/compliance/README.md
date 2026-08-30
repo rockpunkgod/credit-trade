@@ -1,6 +1,6 @@
 # Compliance evidence workspace
 
-This repository workspace stores evidence metadata, redacted matrices, hashes and private-vault references. The intended GitHub repository is private, but the repository must still never contain contracts, identity documents, bank details, production account data, legal opinions, API keys or other secrets.
+This repository workspace stores evidence metadata, redacted matrices, hashes and private-vault references. The GitHub repository is private, but the repository must still never contain contracts, identity documents, bank details, production account data, legal opinions, API keys or other secrets.
 
 ## Allowed statuses
 

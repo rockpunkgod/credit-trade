@@ -6,8 +6,8 @@ These blockers do not prevent safe local design, sandbox implementation, or test
 
 | ID | Type | Blocks | Missing input or evidence | Owner / provider | Recovery condition |
 |---|---|---|---|---|---|
-| B-001 | Publication authority | Any remote repository creation, push, tag, or GitHub Release | Visibility is resolved as `private` and public publication is forbidden. Still missing: GitHub owner, repository name, default branch, license, release version, and explicit private-repository creation, push, tag/Release and image permissions | User / repository owner | All remaining private GitHub publication inputs are supplied and access is verified without exposing tokens |
-| B-002 | GitHub tooling | Verifiable GitHub publication from this host | `gh` is not available in PATH; no GitHub remote or credential reference exists | DevOps / user | Approved GitHub access path is configured and a read-only permission check succeeds |
+| B-001 | Publication authority | Tags, GitHub Releases, container publication, and production deployment | Private repository creation and `main` pushes are resolved. Still missing: license, release version, and explicit tag/Release, image-publication, and production-deployment permissions | User / repository owner | Each remaining private publication input and permission is supplied before its corresponding action |
+| B-002 | GitHub tooling | GitHub Release creation and API-level Release verification from this host | Git push and remote-reference verification work through the existing approved credential path without exposing credentials, but `gh` is not available in PATH | DevOps / user | An approved Release-capable GitHub tool or API path is configured and verified without exposing tokens |
 | B-003 | Container tooling | Docker Compose demo, image build/scan, and image provenance | Docker CLI/engine is not available in PATH | DevOps / user | Approved container runtime is installed or an equivalent CI builder is provided |
 | B-004 | Market scope | US/EU market-specific legal analysis and any live admission | US state list and EU member-state list | Product/legal owner | Exact service jurisdictions are supplied |
 | B-005 | Operating eligibility | `LIVE_PILOT` and `LIVE` in every market | Operating entity, registration, bank account, accountable officers, legal/tax/security sign-off | Market operator | Private evidence is approved; public matrix stores only hashes/references |
@@ -20,4 +20,4 @@ These blockers do not prevent safe local design, sandbox implementation, or test
 
 ## Non-blocking environment note
 
-`node` is not on the normal PATH, but the Codex workspace runtime provides Node.js `v24.19.0` and Python `3.12.13`; pnpm `11.19.0` is callable. This supports local development after scripts explicitly select the bundled runtime. It does not resolve Docker or GitHub publication blockers.
+`node` is not on the normal PATH, but the Codex workspace runtime provides Node.js `v24.19.0` and Python `3.12.13`; pnpm `11.19.0` is callable. This supports local development after scripts explicitly select the bundled runtime. It does not resolve Docker or GitHub Release-management blockers.
