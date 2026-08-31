@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-Credit Trade is a local sandbox for a vendor-neutral marketplace of authorized API inference services. A supplier registers an endpoint it controls, the platform classifies the mock service, a buyer receives a versioned quote, and a synthetic inference call is metered and posted to a balanced double-entry ledger.
+Credit Trade is a local sandbox for a vendor-neutral marketplace of authorized API inference services. A supplier registers an endpoint it claims to control, the platform classifies the mock service, a buyer receives a versioned quote, and a synthetic inference call is metered and posted to a balanced double-entry ledger. The current sandbox does not verify endpoint control or service authorization.
 
 This repository does **not** trade API credits, consumer subscriptions, promotional balances, or transferable stored value.
 
@@ -79,10 +79,23 @@ The API listens on `http://127.0.0.1:3000` by default. Its exact implemented con
 
 The synthetic fixture uses a 10% platform fee and integer minor-currency-unit prices per token. These are demo values, not approved commercial terms.
 
+## Billing and metering
+
+The internal `packages/core/src/billing` module separates usage measurement from exact rating and ledger settlement. Its versioned meter schema defines input, output, cache-read, cache-write, tool-call and request dimensions. The current mock flow uses only estimated input/output tokens and one request; unsupported cache and tool dimensions remain explicitly zero.
+
+Usage records contain source, finality, outcome, schema/version and content digests without storing prompts or outputs. Rating policies snapshot the price and fee versions and support exact rational rates such as a minor-unit amount per one million tokens. All quantities and amounts remain decimal strings backed by `bigint`; no floating-point money is used. Rounding is explicit and currently scoped per usage record.
+
+Each quote binds its pricing digest and meter/billing-policy versions before inference. Hold, settlement and release journals are committed as one rollback-protected in-memory batch, so an injected mid-commit failure leaves no reserved balance and the request can be retried. Durable database transactions and unique constraints are still required before production.
+
+The sandbox generates usage internally—buyers cannot submit billable quantities. Its UTF-8 byte estimator is deterministic technical test logic, not an authoritative vendor tokenizer or provider billing record. Delivered synthetic output is truncated before metering, so output beyond the immutable quote limit is neither returned nor charged.
+
+The implemented boundary and remaining production gaps are recorded in [`docs/adr/0003-sandbox-billing-metering-boundary.md`](docs/adr/0003-sandbox-billing-metering-boundary.md).
+
 ## Initial-version limits
 
 - State is in memory and is lost when the process stops.
 - Only `mock://acme-ai` and `mock://contoso-ai` can execute synthetic inference.
+- Usage is a local sandbox estimate, not provider-authoritative metering or invoice reconciliation.
 - Other valid endpoints remain registered as `PENDING_REVIEW` and are never contacted.
 - The buyer selects a supplier endpoint when requesting a quote; automatic multi-supplier routing is not implemented yet.
 - Streaming, cancellation, persistence, RBAC/MFA, refunds, chargebacks, supplier payouts and payment-provider sandbox adapters are not implemented yet.
@@ -97,6 +110,7 @@ The intended markets—China mainland, Hong Kong, Singapore, the United States, 
 
 - `apps/api`: local HTTP control and inference surface
 - `packages/core`: in-memory sandbox domain, pricing, metering, and ledger logic
+- `packages/core/src/billing`: pure meter-schema, usage-record and exact rating functions
 - `scripts/demo.ts`: executable end-to-end synthetic workflow
 - `docs/api/openapi.yaml`: implemented HTTP contract
 - `docs/compliance`: evidence metadata rules; confidential evidence remains outside Git

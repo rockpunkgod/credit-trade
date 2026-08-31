@@ -1,6 +1,6 @@
 # Initial security and privacy risk register
 
-Last updated: 2026-08-30 (Asia/Shanghai)
+Last updated: 2026-08-31 (Asia/Shanghai)
 
 This is a design-stage register. “Required control” does not mean the control has been implemented or tested.
 
@@ -10,9 +10,9 @@ This is a design-stage register. “Required control” does not mean the contro
 | SEC-02 | Cross-market data, traffic, ledger or payment mixing | Market-scoped keys/accounts/deployments; deny cross-region fallback; isolation tests | OPEN |
 | SEC-03 | SSRF through provider URLs, tools or callbacks | Registry allowlist, egress policy, DNS/IP validation, redirect limits, private-range denial | OPEN |
 | SEC-04 | Malicious supplier response or key exfiltration | Supplier boundary, schema/size validation, secrets isolated from buyer/logs, adversarial tests | OPEN |
-| SEC-05 | Forged or discrepant usage inflates cost | Signed/linked metering evidence, independent bounds, variance workflow and reconciliation | OPEN |
+| SEC-05 | Forged or discrepant usage inflates cost | Signed/linked metering evidence, independent bounds, variance workflow and reconciliation | PARTIAL — buyers cannot submit usage; sandbox records are bounded, linked and hashed, but provider evidence, variance and reconciliation remain open |
 | SEC-06 | Duplicate, replayed or out-of-order webhook | Signature and timestamp validation, replay window, inbox uniqueness and state machine tests | OPEN |
-| SEC-07 | Concurrent charge/refund/payout creates double financial effect | Serializable transaction design, idempotency, immutable entries and race/property tests | OPEN |
+| SEC-07 | Concurrent charge/refund/payout creates double financial effect | Serializable transaction design, idempotency, immutable entries and race/property tests | PARTIAL — inference uses an atomic rollback-protected in-memory journal batch and concurrent idempotency test; durable database isolation, refund and payout races remain open |
 | SEC-08 | Account takeover or MFA bypass | Phishing-resistant MFA for privileged roles, session hardening and recovery controls | OPEN |
 | SEC-09 | Payout-account rebinding theft | Re-verification, cooling period, enhanced review and dual approval | OPEN |
 | SEC-10 | Administrator abuse or unaudited balance change | Least privilege, two-person approval, append-only audit and no direct balance mutation | OPEN |

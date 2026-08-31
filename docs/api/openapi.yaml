@@ -326,7 +326,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
     Unprocessable:
-      description: No eligible sandbox route or endpoint is not routable.
+      description: No eligible sandbox route, the endpoint is not routable, or input usage exceeds the immutable quote limit.
       content:
         application/json:
           schema:
@@ -576,6 +576,7 @@ components:
       additionalProperties: false
     Quote:
       type: object
+      description: Buyer quote with immutable pricing and limit terms. Creation calculates the maximum hold but does not move funds; the sandbox internally pins the meter and rating policy versions used at inference time. Operational status can move from ISSUED to USED.
       additionalProperties: false
       required:
         - quoteId
@@ -644,6 +645,7 @@ components:
           enum: [ISSUED, USED]
     Usage:
       type: object
+      description: Deterministic sandbox-estimated input and actually delivered output tokens. This is not authoritative provider usage or invoice evidence; totalTokens remains inputTokens plus outputTokens.
       additionalProperties: false
       required: [inputTokens, outputTokens, totalTokens]
       properties:
@@ -655,6 +657,7 @@ components:
           $ref: '#/components/schemas/DecimalInteger'
     Inference:
       type: object
+      description: Synchronously metered, rated and ledger-settled synthetic inference result. The existing flat amount fields remain the public sandbox contract; internal usage and rating records are not buyer-submittable resources.
       additionalProperties: false
       required:
         - sandbox
@@ -690,7 +693,7 @@ components:
           type: string
         output:
           type: string
-          description: Synthetic output; state and ledger inspection routes redact prompt-like fields.
+          description: Synthetic output truncated to the immutable quoted output-token limit before metering; state and ledger inspection routes redact prompt-like fields.
         usage:
           $ref: '#/components/schemas/Usage'
         currency:

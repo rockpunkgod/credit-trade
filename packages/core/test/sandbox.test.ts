@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { DomainError, SandboxMarketplace } from "../src/index.ts";
+import { DomainError, SandboxMarketplace, estimateTextTokens } from "../src/index.ts";
 
 async function configuredMarketplace(): Promise<{
   marketplace: SandboxMarketplace;
@@ -146,22 +146,55 @@ test("quote, hold, inference, settlement and release preserve a balanced ledger"
   assert.match(quote.maxHoldMinor, /^[1-9]\d*$/);
   assert.equal(quote.priceVersion, "1");
 
+  const prompt = "  synthetic input only  ";
   const result = await marketplace.infer({
     apiKey,
     quoteId: quote.quoteId,
-    prompt: "synthetic input only",
+    prompt,
     idempotencyKey: "core-flow-1",
   });
   assert.equal(result.vendor, "ACME_AI");
   assert.equal(result.model, "acme-chat-v1");
   assert.match(result.usage.inputTokens, /^\d+$/);
+  assert.equal(result.usage.inputTokens, estimateTextTokens(prompt));
   assert.match(result.usage.outputTokens, /^\d+$/);
   assert.match(result.buyerChargeMinor, /^\d+$/);
+
+  const billing = await marketplace.getBillingRecords();
+  assert.equal(billing.sandbox, true);
+  assert.equal(billing.authoritativeProviderUsage, false);
+  assert.equal(billing.records.length, 1);
+  const billingRecord = billing.records[0];
+  assert.ok(billingRecord !== undefined);
+  assert.equal(billingRecord.inferenceId, result.inferenceId);
+  assert.equal(billingRecord.quoteId, quote.quoteId);
+  assert.equal(billingRecord.billingStatus, "SETTLED");
+  assert.equal(billingRecord.usageRecord.source, "SANDBOX_ESTIMATE");
+  assert.equal(billingRecord.usageRecord.finality, "FINAL");
+  assert.equal(billingRecord.usageRecord.outcome, "SUCCEEDED");
+  assert.equal(billingRecord.usageRecord.quantities.INPUT_TOKENS, result.usage.inputTokens);
+  assert.equal(billingRecord.usageRecord.quantities.OUTPUT_TOKENS, result.usage.outputTokens);
+  assert.equal(billingRecord.ratingRecord.priceId, quote.priceId);
+  assert.equal(billingRecord.ratingRecord.priceVersion, quote.priceVersion);
+  assert.equal(billingRecord.ratingRecord.maximumChargeMinor, quote.maxHoldMinor);
+  assert.equal(billingRecord.ratingRecord.supplierCostMinor, result.supplierCostMinor);
+  assert.equal(billingRecord.ratingRecord.platformFeeMinor, result.platformFeeMinor);
+  assert.equal(billingRecord.ratingRecord.buyerChargeMinor, result.buyerChargeMinor);
+  assert.deepEqual(billingRecord.ledgerJournalIds, result.ledgerJournalIds);
+  assert.doesNotMatch(JSON.stringify(billingRecord), /synthetic input only/);
 
   const ledger = await marketplace.getLedger();
   assert.equal(ledger.balanced, true);
   assert.ok(ledger.journals.length >= 4);
+  assert.equal(
+    BigInt(result.buyerChargeMinor),
+    BigInt(result.supplierCostMinor) + BigInt(result.platformFeeMinor),
+  );
+  const businessKeys = new Set<string>();
   for (const journal of ledger.journals) {
+    assert.equal(businessKeys.has(`${journal.currency}:${journal.businessKey}`), false);
+    businessKeys.add(`${journal.currency}:${journal.businessKey}`);
+    assert.ok(journal.postings.every((posting) => BigInt(posting.amountMinor) > 0n));
     const debit = journal.postings
       .filter((posting) => posting.direction === "DEBIT")
       .reduce((sum, posting) => sum + BigInt(posting.amountMinor), 0n);
@@ -170,9 +203,21 @@ test("quote, hold, inference, settlement and release preserve a balanced ledger"
       .reduce((sum, posting) => sum + BigInt(posting.amountMinor), 0n);
     assert.equal(debit, credit);
   }
+  const holdAmount = ledger.journals
+    .find((journal) => journal.eventType === "HOLD_PLACED")
+    ?.postings.find((posting) => posting.direction === "DEBIT")?.amountMinor;
+  const settledAmount = ledger.journals
+    .find((journal) => journal.eventType === "INFERENCE_SETTLED")
+    ?.postings.find((posting) => posting.direction === "DEBIT")?.amountMinor;
+  const releasedAmount = ledger.journals
+    .find((journal) => journal.eventType === "HOLD_RELEASED")
+    ?.postings.find((posting) => posting.direction === "DEBIT")?.amountMinor ?? "0";
+  assert.ok(holdAmount !== undefined);
+  assert.ok(settledAmount !== undefined);
+  assert.equal(BigInt(holdAmount), BigInt(settledAmount) + BigInt(releasedAmount));
 });
 
-test("same idempotency key returns one inference and creates no duplicate financial effect", async () => {
+test("concurrent use of the same idempotency key creates one financial effect", async () => {
   const { marketplace, supplierId, endpointId, apiKey } = await configuredMarketplace();
   const quote = await marketplace.createQuote({
     apiKey,
@@ -188,13 +233,106 @@ test("same idempotency key returns one inference and creates no duplicate financ
     prompt: "same request",
     idempotencyKey: "same-effect-1",
   };
-  const first = await marketplace.infer(request);
-  const ledgerAfterFirst = await marketplace.getLedger();
-  const second = await marketplace.infer(request);
-  const ledgerAfterSecond = await marketplace.getLedger();
+  const [first, second] = await Promise.all([
+    marketplace.infer(request),
+    marketplace.infer(request),
+  ]);
+  const ledgerAfterReplay = await marketplace.getLedger();
 
   assert.equal(second.inferenceId, first.inferenceId);
-  assert.equal(ledgerAfterSecond.journals.length, ledgerAfterFirst.journals.length);
+  assert.equal((await marketplace.getBillingRecords()).records.length, 1);
+  assert.equal(
+    ledgerAfterReplay.journals.filter((journal) => journal.businessKey.endsWith(quote.quoteId)).length,
+    first.ledgerJournalIds.length,
+  );
+});
+
+test("inference journal batch rolls back completely and can be retried after a commit failure", async () => {
+  const { marketplace, supplierId, endpointId, apiKey } = await configuredMarketplace();
+  const quote = await marketplace.createQuote({
+    apiKey,
+    supplierId,
+    endpointId,
+    model: "acme-chat-v1",
+    maxInputTokens: "32",
+    maxOutputTokens: "16",
+  });
+  const stateBefore = await marketplace.getState();
+  const ledgerBefore = await marketplace.getLedger();
+  const originalPostJournalBatch = Reflect.get(marketplace, "postJournalBatch") as Function;
+  let failOnce = true;
+  Reflect.set(marketplace, "postJournalBatch", (drafts: readonly unknown[]) => {
+    const journals = Reflect.apply(originalPostJournalBatch, marketplace, [drafts]);
+    if (failOnce) {
+      failOnce = false;
+      throw new Error("simulated failure after the staged journal batch");
+    }
+    return journals;
+  });
+  const request = {
+    apiKey,
+    quoteId: quote.quoteId,
+    prompt: "retryable inference",
+    idempotencyKey: "atomic-retry-1",
+  };
+
+  await assert.rejects(marketplace.infer(request), /simulated failure/);
+  assert.deepEqual(await marketplace.getLedger(), ledgerBefore);
+  assert.deepEqual(await marketplace.getState(), stateBefore);
+  assert.equal((await marketplace.getBillingRecords()).records.length, 0);
+
+  const result = await marketplace.infer(request);
+  assert.ok(result.ledgerJournalIds.length >= 2);
+  assert.equal((await marketplace.getLedger()).balanced, true);
+  assert.equal((await marketplace.getBillingRecords()).records.length, 1);
+});
+
+test("quote fails closed when its frozen rating policy is swapped", async () => {
+  const { marketplace, supplierId, endpointId, apiKey } = await configuredMarketplace();
+  const firstQuote = await marketplace.createQuote({
+    apiKey,
+    supplierId,
+    endpointId,
+    model: "acme-chat-v1",
+    maxInputTokens: "8",
+    maxOutputTokens: "8",
+  });
+  await marketplace.setModelPrice({
+    supplierId,
+    endpointId,
+    model: "acme-chat-v1",
+    currency: "USD",
+    inputTokenPriceMinor: "100",
+    outputTokenPriceMinor: "100",
+  });
+  const secondQuote = await marketplace.createQuote({
+    apiKey,
+    supplierId,
+    endpointId,
+    model: "acme-chat-v1",
+    maxInputTokens: "8",
+    maxOutputTokens: "8",
+  });
+  const policies = Reflect.get(marketplace, "quoteRatingPolicies") as Map<string, unknown>;
+  const firstPolicy = policies.get(firstQuote.quoteId);
+  assert.ok(firstPolicy !== undefined);
+  policies.set(secondQuote.quoteId, firstPolicy);
+  const ledgerBefore = await marketplace.getLedger();
+
+  await assert.rejects(
+    marketplace.infer({
+      apiKey,
+      quoteId: secondQuote.quoteId,
+      prompt: "must not settle with the wrong price",
+      idempotencyKey: "policy-swap-1",
+    }),
+    (error: unknown) => error instanceof DomainError && error.code === "RATING_POLICY_TAMPERED",
+  );
+  assert.deepEqual(await marketplace.getLedger(), ledgerBefore);
+  assert.equal((await marketplace.getBillingRecords()).records.length, 0);
+  const state = await marketplace.getState();
+  const quotes = state.quotes as readonly Array<{ quoteId: string; status: string }>;
+  assert.equal(quotes.find((candidate) => candidate.quoteId === secondQuote.quoteId)?.status, "ISSUED");
 });
 
 test("an idempotency key cannot be reused with different inference input", async () => {
@@ -290,6 +428,118 @@ test("a newer supplier price never rewrites an issued quote", async () => {
     + BigInt(result.usage.outputTokens) * BigInt(quote.outputTokenPriceMinor);
   assert.equal(result.supplierCostMinor, expectedSupplierCost.toString());
   assert.equal(quote.priceVersion, "1");
+});
+
+test("a zero output-token limit returns and bills no output", async () => {
+  const { marketplace, supplierId, endpointId, apiKey } = await configuredMarketplace();
+  const quote = await marketplace.createQuote({
+    apiKey,
+    supplierId,
+    endpointId,
+    model: "acme-chat-v1",
+    maxInputTokens: "32",
+    maxOutputTokens: "0",
+  });
+  const result = await marketplace.infer({
+    apiKey,
+    quoteId: quote.quoteId,
+    prompt: "bill only delivered output",
+    idempotencyKey: "zero-output-1",
+  });
+  assert.equal(result.output, "");
+  assert.equal(result.usage.outputTokens, "0");
+  const records = await marketplace.getBillingRecords();
+  const outputLine = records.records[0]?.ratingRecord.lineItems.find(
+    (lineItem) => lineItem.dimension === "OUTPUT_TOKENS",
+  );
+  assert.equal(outputLine?.quantity, "0");
+  assert.equal(outputLine?.amountMinor, "0");
+});
+
+test("a zero-value inference creates no zero-amount ledger postings", async () => {
+  const marketplace = new SandboxMarketplace({ platformFeeBps: "0" });
+  const supplier = await marketplace.createSupplier({ name: "Free Input Supplier" });
+  const endpoint = await marketplace.registerEndpoint({
+    supplierId: supplier.supplierId,
+    url: "mock://acme-ai",
+    declaredVendor: "acme-ai",
+  });
+  await marketplace.setModelPrice({
+    supplierId: supplier.supplierId,
+    endpointId: endpoint.endpointId,
+    model: "free-input-model",
+    currency: "USD",
+    inputTokenPriceMinor: "0",
+    outputTokenPriceMinor: "1",
+  });
+  const buyer = await marketplace.createBuyer({
+    name: "Zero Balance Buyer",
+    currency: "USD",
+    initialBalanceMinor: "0",
+  });
+  const quote = await marketplace.createQuote({
+    apiKey: buyer.apiKey,
+    supplierId: supplier.supplierId,
+    endpointId: endpoint.endpointId,
+    model: "free-input-model",
+    maxInputTokens: "1",
+    maxOutputTokens: "0",
+  });
+  assert.equal(quote.maxHoldMinor, "0");
+  const result = await marketplace.infer({
+    apiKey: buyer.apiKey,
+    quoteId: quote.quoteId,
+    prompt: "a",
+    idempotencyKey: "zero-value-1",
+  });
+  assert.equal(result.buyerChargeMinor, "0");
+  assert.deepEqual(result.ledgerJournalIds, []);
+  const ledger = await marketplace.getLedger();
+  assert.equal(ledger.balanced, true);
+  assert.deepEqual(ledger.journals, []);
+});
+
+test("latest supplier price is selected within the buyer currency", async () => {
+  const marketplace = new SandboxMarketplace();
+  const supplier = await marketplace.createSupplier({ name: "Multi Currency Supplier" });
+  const endpoint = await marketplace.registerEndpoint({
+    supplierId: supplier.supplierId,
+    url: "mock://acme-ai",
+    declaredVendor: "acme-ai",
+  });
+  const usdPrice = await marketplace.setModelPrice({
+    supplierId: supplier.supplierId,
+    endpointId: endpoint.endpointId,
+    model: "multi-currency-model",
+    currency: "USD",
+    inputTokenPriceMinor: "2",
+    outputTokenPriceMinor: "4",
+  });
+  await marketplace.setModelPrice({
+    supplierId: supplier.supplierId,
+    endpointId: endpoint.endpointId,
+    model: "multi-currency-model",
+    currency: "EUR",
+    inputTokenPriceMinor: "3",
+    outputTokenPriceMinor: "5",
+  });
+  const buyer = await marketplace.createBuyer({
+    name: "USD Buyer",
+    currency: "USD",
+    initialBalanceMinor: "1000",
+  });
+  const quote = await marketplace.createQuote({
+    apiKey: buyer.apiKey,
+    supplierId: supplier.supplierId,
+    endpointId: endpoint.endpointId,
+    model: "multi-currency-model",
+    maxInputTokens: "10",
+    maxOutputTokens: "10",
+  });
+  assert.equal(quote.currency, "USD");
+  assert.equal(quote.priceId, usdPrice.priceId);
+  assert.equal(quote.inputTokenPriceMinor, "2");
+  assert.equal(quote.outputTokenPriceMinor, "4");
 });
 
 test("API keys are returned once and never exposed in state snapshots", async () => {

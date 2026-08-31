@@ -1,5 +1,21 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
+import {
+  TOKEN_METER_SCHEMA_V1,
+  calculateBilling,
+  createMeterQuantities,
+  createRatingPolicySnapshot,
+  createRatingRecord,
+  meterSandboxText,
+  type RatingPolicySnapshot,
+  type RatingRecord,
+  type UsageRecord,
+} from "./billing/index.ts";
+import { DomainError } from "./errors.ts";
+
+export * from "./billing/index.ts";
+export { DomainError } from "./errors.ts";
+
 type DetectionStatus = "VERIFIED_SANDBOX" | "UNIDENTIFIED" | "CONFLICT";
 type EvidenceStatus = "PENDING_REVIEW" | "PROHIBITED";
 type Direction = "DEBIT" | "CREDIT";
@@ -70,10 +86,18 @@ type QuoteInternal = {
   maxHoldMinor: string;
   priceId: string;
   priceVersion: string;
+  ratingPolicyBinding: Readonly<{
+    pricingDigest: string;
+    billingPolicyVersion: string;
+    meterSchemaId: string;
+    meterSchemaVersion: string;
+  }>;
   createdAt: string;
   expiresAt: string;
   status: "ISSUED" | "USED";
 };
+
+type QuoteSnapshot = Omit<QuoteInternal, "ratingPolicyBinding">;
 
 type Usage = Readonly<{
   inputTokens: string;
@@ -114,24 +138,27 @@ export type LedgerJournal = Readonly<{
   createdAt: string;
 }>;
 
+type LedgerJournalDraft = Readonly<{
+  eventType: string;
+  currency: string;
+  businessKey: string;
+  postings: ReadonlyArray<{ account: string; direction: Direction; amount: bigint }>;
+}>;
+
 type IdempotencyRecord = {
   fingerprint: string;
   result: InferenceResult;
 };
 
-export class DomainError extends Error {
-  readonly code: string;
-  readonly details?: Readonly<Record<string, string>>;
-
-  constructor(code: string, message: string, details?: Readonly<Record<string, string>>) {
-    super(message);
-    this.name = "DomainError";
-    this.code = code;
-    if (details !== undefined) {
-      this.details = details;
-    }
-  }
-}
+export type SandboxBillingRecord = Readonly<{
+  inferenceId: string;
+  quoteId: string;
+  usageRecord: UsageRecord;
+  ratingRecord: RatingRecord;
+  billingStatus: "SETTLED";
+  ledgerJournalIds: readonly string[];
+  settledAt: string;
+}>;
 
 function timestamp(): string {
   return new Date().toISOString();
@@ -147,6 +174,18 @@ function requireText(value: unknown, field: string, maximum = 2_048): string {
     || value.length === 0
     || value.length > maximum
     || value.trim() !== value
+  ) {
+    throw new DomainError("INVALID_INPUT", `${field} is invalid`, { field });
+  }
+  return value;
+}
+
+function requireContentText(value: unknown, field: string, maximum: number): string {
+  if (
+    typeof value !== "string"
+    || value.length === 0
+    || value.length > maximum
+    || value.trim().length === 0
   ) {
     throw new DomainError("INVALID_INPUT", `${field} is invalid`, { field });
   }
@@ -188,20 +227,9 @@ function normalizeVendor(value: string): string {
   return value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-function addBasisPoints(amount: bigint, basisPoints: bigint): bigint {
-  if (amount === 0n || basisPoints === 0n) {
-    return 0n;
-  }
-  return (amount * basisPoints + 9_999n) / 10_000n;
-}
-
-function estimateTokens(text: string): bigint {
-  const bytes = BigInt(Buffer.byteLength(text, "utf8"));
-  return bytes === 0n ? 0n : (bytes + 3n) / 4n;
-}
-
-function cloneQuote(quote: QuoteInternal): Readonly<QuoteInternal> {
-  return Object.freeze({ ...quote });
+function cloneQuote(quote: QuoteInternal): Readonly<QuoteSnapshot> {
+  const { ratingPolicyBinding: _ratingPolicyBinding, ...snapshot } = quote;
+  return Object.freeze(snapshot);
 }
 
 export class SandboxMarketplace {
@@ -211,10 +239,13 @@ export class SandboxMarketplace {
   private readonly buyers = new Map<string, BuyerInternal>();
   private readonly buyerIdByApiKeyHash = new Map<string, string>();
   private readonly quotes = new Map<string, QuoteInternal>();
+  private readonly quoteRatingPolicies = new Map<string, RatingPolicySnapshot>();
   private readonly inferences = new Map<string, InferenceResult>();
+  private readonly billingRecords = new Map<string, SandboxBillingRecord>();
   private readonly idempotency = new Map<string, IdempotencyRecord>();
-  private readonly journals: LedgerJournal[] = [];
-  private readonly accountNetCredits = new Map<string, bigint>();
+  private journals: LedgerJournal[] = [];
+  private journalBusinessKeys = new Set<string>();
+  private accountNetCredits = new Map<string, bigint>();
   private readonly platformFeeBps: bigint;
   private readonly quoteLifetimeMs: number;
 
@@ -370,7 +401,7 @@ export class SandboxMarketplace {
     model: string;
     maxInputTokens: string;
     maxOutputTokens: string;
-  }): Promise<Readonly<QuoteInternal>> {
+  }): Promise<Readonly<QuoteSnapshot>> {
     const buyer = this.authenticate(input.apiKey);
     const supplierId = requireText(input.supplierId, "supplierId", 128);
     this.requireSupplier(supplierId);
@@ -382,19 +413,72 @@ export class SandboxMarketplace {
       throw new DomainError("ENDPOINT_NOT_ROUTABLE", "endpoint remains open for review but is not sandbox routable");
     }
     const model = requireText(input.model, "model", 256);
-    const price = this.latestPrice(endpoint.endpointId, model);
-    if (price.currency !== buyer.currency) {
-      throw new DomainError("INVALID_MONEY", "buyer and supplier price currencies differ");
-    }
+    const price = this.latestPrice(endpoint.endpointId, model, buyer.currency);
     const maxInput = requireTokenCount(input.maxInputTokens, "maxInputTokens");
     const maxOutput = requireTokenCount(input.maxOutputTokens, "maxOutputTokens");
     if (maxInput === 0n && maxOutput === 0n) {
       throw new DomainError("INVALID_INPUT", "quote must allow some usage");
     }
-    const supplierMaximum = maxInput * BigInt(price.inputTokenPriceMinor)
-      + maxOutput * BigInt(price.outputTokenPriceMinor);
-    const platformMaximum = addBasisPoints(supplierMaximum, this.platformFeeBps);
-    const maximumHold = supplierMaximum + platformMaximum;
+    const ratingPolicy = createRatingPolicySnapshot({
+      priceId: price.priceId,
+      priceVersion: price.version,
+      currency: price.currency,
+      meterSchemaId: TOKEN_METER_SCHEMA_V1.meterSchemaId,
+      meterSchemaVersion: TOKEN_METER_SCHEMA_V1.meterSchemaVersion,
+      billingPolicyVersion: "sandbox-cost-plus-v1",
+      roundingScope: "PER_USAGE_RECORD",
+      platformFeeBps: this.platformFeeBps.toString(),
+      platformFeeRoundingMode: "CEILING",
+      rates: [
+        {
+          dimension: "INPUT_TOKENS",
+          rateNumeratorMinor: price.inputTokenPriceMinor,
+          rateDenominatorUnits: "1",
+          roundingMode: "CEILING",
+        },
+        {
+          dimension: "OUTPUT_TOKENS",
+          rateNumeratorMinor: price.outputTokenPriceMinor,
+          rateDenominatorUnits: "1",
+          roundingMode: "CEILING",
+        },
+        {
+          dimension: "CACHE_READ_TOKENS",
+          rateNumeratorMinor: "0",
+          rateDenominatorUnits: "1",
+          roundingMode: "CEILING",
+        },
+        {
+          dimension: "CACHE_WRITE_TOKENS",
+          rateNumeratorMinor: "0",
+          rateDenominatorUnits: "1",
+          roundingMode: "CEILING",
+        },
+        {
+          dimension: "TOOL_CALLS",
+          rateNumeratorMinor: "0",
+          rateDenominatorUnits: "1",
+          roundingMode: "CEILING",
+        },
+        {
+          dimension: "REQUESTS",
+          rateNumeratorMinor: "0",
+          rateDenominatorUnits: "1",
+          roundingMode: "CEILING",
+        },
+      ],
+    });
+    const maximumBilling = calculateBilling({
+      quantities: createMeterQuantities({
+        INPUT_TOKENS: maxInput.toString(),
+        OUTPUT_TOKENS: maxOutput.toString(),
+        REQUESTS: "1",
+      }),
+      policy: ratingPolicy,
+    });
+    const supplierMaximum = BigInt(maximumBilling.supplierCostMinor);
+    const platformMaximum = BigInt(maximumBilling.platformFeeMinor);
+    const maximumHold = BigInt(maximumBilling.buyerChargeMinor);
     if (this.accountCreditBalance(buyer.currency, this.availableAccount(buyer.buyerId)) < maximumHold) {
       throw new DomainError("INSUFFICIENT_BALANCE", "sandbox buyer balance is insufficient");
     }
@@ -417,11 +501,18 @@ export class SandboxMarketplace {
       maxHoldMinor: maximumHold.toString(),
       priceId: price.priceId,
       priceVersion: price.version,
+      ratingPolicyBinding: Object.freeze({
+        pricingDigest: ratingPolicy.pricingDigest,
+        billingPolicyVersion: ratingPolicy.billingPolicyVersion,
+        meterSchemaId: ratingPolicy.meterSchemaId,
+        meterSchemaVersion: ratingPolicy.meterSchemaVersion,
+      }),
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(now + this.quoteLifetimeMs).toISOString(),
       status: "ISSUED",
     };
     this.quotes.set(quote.quoteId, quote);
+    this.quoteRatingPolicies.set(quote.quoteId, ratingPolicy);
     return cloneQuote(quote);
   }
 
@@ -433,7 +524,7 @@ export class SandboxMarketplace {
   }): Promise<InferenceResult> {
     const buyer = this.authenticate(input.apiKey);
     const quoteId = requireText(input.quoteId, "quoteId", 128);
-    const prompt = requireText(input.prompt, "prompt", 32 * 1_024);
+    const prompt = requireContentText(input.prompt, "prompt", 32 * 1_024);
     const replayKey = requireText(input.idempotencyKey, "idempotencyKey", 128);
     const fingerprint = sha256(JSON.stringify({ quoteId, prompt }));
     const idempotencyScope = `${buyer.buyerId}:${replayKey}`;
@@ -460,79 +551,94 @@ export class SandboxMarketplace {
       throw new DomainError("ENDPOINT_NOT_ROUTABLE", "endpoint is not sandbox routable");
     }
 
-    const inputTokens = estimateTokens(prompt);
-    const maxInput = BigInt(quote.maxInputTokens);
-    const maxOutput = BigInt(quote.maxOutputTokens);
-    if (inputTokens > maxInput) {
-      throw new DomainError("INVALID_INPUT", "prompt exceeds the quoted input-token limit");
+    const ratingPolicy = this.quoteRatingPolicies.get(quote.quoteId);
+    if (ratingPolicy === undefined) {
+      throw new DomainError("INVALID_PRICE", "quote rating policy snapshot was not found");
     }
-    const output = `[sandbox ${quote.detectedVendor}/${quote.model}] synthetic inference completed`;
-    const outputTokens = estimateTokens(output) > maxOutput ? maxOutput : estimateTokens(output);
-    const supplierCost = inputTokens * BigInt(quote.inputTokenPriceMinor)
-      + outputTokens * BigInt(quote.outputTokenPriceMinor);
-    const platformFee = addBasisPoints(supplierCost, BigInt(quote.platformFeeBps));
-    const buyerCharge = supplierCost + platformFee;
+    this.assertQuoteRatingPolicyBinding(quote, ratingPolicy);
+    const inferenceId = identifier("inference");
+    const meteredAt = timestamp();
+    const metered = meterSandboxText({
+      usageRecordId: identifier("usage"),
+      inferenceId,
+      quoteId: quote.quoteId,
+      inputText: prompt,
+      generatedOutput: `[sandbox ${quote.detectedVendor}/${quote.model}] synthetic inference completed`,
+      maxInputTokens: quote.maxInputTokens,
+      maxOutputTokens: quote.maxOutputTokens,
+      createdAt: meteredAt,
+    });
+    const ratingRecord = createRatingRecord({
+      ratingId: identifier("rating"),
+      usageRecord: metered.usageRecord,
+      policy: ratingPolicy,
+      maximumChargeMinor: quote.maxHoldMinor,
+      ratedAt: timestamp(),
+    });
+    const inputTokens = BigInt(metered.usageRecord.quantities.INPUT_TOKENS);
+    const outputTokens = BigInt(metered.usageRecord.quantities.OUTPUT_TOKENS);
+    const supplierCost = BigInt(ratingRecord.supplierCostMinor);
+    const platformFee = BigInt(ratingRecord.platformFeeMinor);
+    const buyerCharge = BigInt(ratingRecord.buyerChargeMinor);
     const maximumHold = BigInt(quote.maxHoldMinor);
-    if (buyerCharge > maximumHold) {
-      throw new DomainError("INVALID_PRICE", "actual charge exceeded immutable quote hold");
-    }
     if (this.accountCreditBalance(quote.currency, this.availableAccount(buyer.buyerId)) < maximumHold) {
       throw new DomainError("INSUFFICIENT_BALANCE", "sandbox buyer balance changed before hold");
     }
 
-    const hold = this.postJournal("HOLD_PLACED", quote.currency, `hold:${quote.quoteId}`, [
-      { account: this.availableAccount(buyer.buyerId), direction: "DEBIT", amount: maximumHold },
-      { account: this.reservedAccount(buyer.buyerId), direction: "CREDIT", amount: maximumHold },
-    ]);
-    const settlementPostings: Array<{ account: string; direction: Direction; amount: bigint }> = [
-      { account: this.reservedAccount(buyer.buyerId), direction: "DEBIT", amount: buyerCharge },
-      { account: this.supplierPayableAccount(quote.supplierId), direction: "CREDIT", amount: supplierCost },
-    ];
-    if (platformFee > 0n) {
-      settlementPostings.push({ account: "platform:fee-revenue", direction: "CREDIT", amount: platformFee });
+    const journalDrafts: LedgerJournalDraft[] = [];
+    if (maximumHold > 0n) {
+      journalDrafts.push({
+        eventType: "HOLD_PLACED",
+        currency: quote.currency,
+        businessKey: `hold:${quote.quoteId}`,
+        postings: [
+          { account: this.availableAccount(buyer.buyerId), direction: "DEBIT", amount: maximumHold },
+          { account: this.reservedAccount(buyer.buyerId), direction: "CREDIT", amount: maximumHold },
+        ],
+      });
     }
-    const settlement = this.postJournal(
-      "INFERENCE_SETTLED",
-      quote.currency,
-      `settlement:${quote.quoteId}`,
-      settlementPostings,
-    );
+    if (buyerCharge > 0n) {
+      const settlementPostings: Array<{ account: string; direction: Direction; amount: bigint }> = [
+        { account: this.reservedAccount(buyer.buyerId), direction: "DEBIT", amount: buyerCharge },
+        { account: this.supplierPayableAccount(quote.supplierId), direction: "CREDIT", amount: supplierCost },
+      ];
+      if (platformFee > 0n) {
+        settlementPostings.push({ account: "platform:fee-revenue", direction: "CREDIT", amount: platformFee });
+      }
+      journalDrafts.push({
+        eventType: "INFERENCE_SETTLED",
+        currency: quote.currency,
+        businessKey: `settlement:${quote.quoteId}`,
+        postings: settlementPostings,
+      });
+    }
     const releaseAmount = maximumHold - buyerCharge;
-    const ledgerJournalIds = [hold.journalId, settlement.journalId];
     if (releaseAmount > 0n) {
-      const release = this.postJournal("HOLD_RELEASED", quote.currency, `release:${quote.quoteId}`, [
-        { account: this.reservedAccount(buyer.buyerId), direction: "DEBIT", amount: releaseAmount },
-        { account: this.availableAccount(buyer.buyerId), direction: "CREDIT", amount: releaseAmount },
-      ]);
-      ledgerJournalIds.push(release.journalId);
+      journalDrafts.push({
+        eventType: "HOLD_RELEASED",
+        currency: quote.currency,
+        businessKey: `release:${quote.quoteId}`,
+        postings: [
+          { account: this.reservedAccount(buyer.buyerId), direction: "DEBIT", amount: releaseAmount },
+          { account: this.availableAccount(buyer.buyerId), direction: "CREDIT", amount: releaseAmount },
+        ],
+      });
     }
-
-    quote.status = "USED";
     const usage: Usage = Object.freeze({
       inputTokens: inputTokens.toString(),
       outputTokens: outputTokens.toString(),
       totalTokens: (inputTokens + outputTokens).toString(),
     });
-    const result: InferenceResult = Object.freeze({
-      sandbox: true,
-      inferenceId: identifier("inference"),
-      quoteId: quote.quoteId,
-      supplierId: quote.supplierId,
-      endpointId: quote.endpointId,
-      vendor: quote.detectedVendor,
-      model: quote.model,
-      output,
+    return this.commitInferenceAtomically({
+      quote,
+      inferenceId,
+      idempotencyScope,
+      fingerprint,
       usage,
-      currency: quote.currency,
-      supplierCostMinor: supplierCost.toString(),
-      platformFeeMinor: platformFee.toString(),
-      buyerChargeMinor: buyerCharge.toString(),
-      ledgerJournalIds: Object.freeze(ledgerJournalIds),
-      createdAt: timestamp(),
+      metered,
+      ratingRecord,
+      journalDrafts,
     });
-    this.inferences.set(result.inferenceId, result);
-    this.idempotency.set(idempotencyScope, { fingerprint, result });
-    return result;
   }
 
   async getState(): Promise<Readonly<Record<string, unknown>>> {
@@ -575,6 +681,123 @@ export class SandboxMarketplace {
     return Object.freeze({ balanced: journals.every((journal) => this.isBalanced(journal)), journals });
   }
 
+  async getBillingRecords(): Promise<Readonly<{
+    sandbox: true;
+    authoritativeProviderUsage: false;
+    records: readonly SandboxBillingRecord[];
+  }>> {
+    return Object.freeze({
+      sandbox: true,
+      authoritativeProviderUsage: false,
+      records: Object.freeze([...this.billingRecords.values()]),
+    });
+  }
+
+  private assertQuoteRatingPolicyBinding(
+    quote: QuoteInternal,
+    policy: RatingPolicySnapshot,
+  ): void {
+    const inputRate = policy.rates.find((rate) => rate.dimension === "INPUT_TOKENS");
+    const outputRate = policy.rates.find((rate) => rate.dimension === "OUTPUT_TOKENS");
+    const binding = quote.ratingPolicyBinding;
+    if (
+      policy.pricingDigest !== binding.pricingDigest
+      || policy.billingPolicyVersion !== binding.billingPolicyVersion
+      || policy.meterSchemaId !== binding.meterSchemaId
+      || policy.meterSchemaVersion !== binding.meterSchemaVersion
+      || policy.priceId !== quote.priceId
+      || policy.priceVersion !== quote.priceVersion
+      || policy.currency !== quote.currency
+      || policy.platformFeeBps !== quote.platformFeeBps
+      || inputRate?.rateNumeratorMinor !== quote.inputTokenPriceMinor
+      || inputRate?.rateDenominatorUnits !== "1"
+      || outputRate?.rateNumeratorMinor !== quote.outputTokenPriceMinor
+      || outputRate?.rateDenominatorUnits !== "1"
+    ) {
+      throw new DomainError(
+        "RATING_POLICY_TAMPERED",
+        "quote and rating policy binding does not match",
+      );
+    }
+  }
+
+  private commitInferenceAtomically(input: {
+    quote: QuoteInternal;
+    inferenceId: string;
+    idempotencyScope: string;
+    fingerprint: string;
+    usage: Usage;
+    metered: Readonly<{ deliveredOutput: string; usageRecord: UsageRecord }>;
+    ratingRecord: RatingRecord;
+    journalDrafts: readonly LedgerJournalDraft[];
+  }): InferenceResult {
+    const journalSnapshot = this.journals;
+    const businessKeySnapshot = this.journalBusinessKeys;
+    const balanceSnapshot = this.accountNetCredits;
+    const quoteStatusSnapshot = input.quote.status;
+    const inferenceSnapshot = this.inferences.get(input.inferenceId);
+    const billingSnapshot = this.billingRecords.get(input.inferenceId);
+    const idempotencySnapshot = this.idempotency.get(input.idempotencyScope);
+
+    try {
+      const journals = this.postJournalBatch(input.journalDrafts);
+      const ledgerJournalIds = Object.freeze(journals.map((journal) => journal.journalId));
+      const createdAt = timestamp();
+      const result: InferenceResult = Object.freeze({
+        sandbox: true,
+        inferenceId: input.inferenceId,
+        quoteId: input.quote.quoteId,
+        supplierId: input.quote.supplierId,
+        endpointId: input.quote.endpointId,
+        vendor: input.quote.detectedVendor,
+        model: input.quote.model,
+        output: input.metered.deliveredOutput,
+        usage: input.usage,
+        currency: input.quote.currency,
+        supplierCostMinor: input.ratingRecord.supplierCostMinor,
+        platformFeeMinor: input.ratingRecord.platformFeeMinor,
+        buyerChargeMinor: input.ratingRecord.buyerChargeMinor,
+        ledgerJournalIds,
+        createdAt,
+      });
+      const billingRecord: SandboxBillingRecord = Object.freeze({
+        inferenceId: input.inferenceId,
+        quoteId: input.quote.quoteId,
+        usageRecord: input.metered.usageRecord,
+        ratingRecord: input.ratingRecord,
+        billingStatus: "SETTLED",
+        ledgerJournalIds,
+        settledAt: createdAt,
+      });
+      input.quote.status = "USED";
+      this.inferences.set(result.inferenceId, result);
+      this.billingRecords.set(result.inferenceId, billingRecord);
+      this.idempotency.set(input.idempotencyScope, { fingerprint: input.fingerprint, result });
+      return result;
+    } catch (error: unknown) {
+      this.journals = journalSnapshot;
+      this.journalBusinessKeys = businessKeySnapshot;
+      this.accountNetCredits = balanceSnapshot;
+      input.quote.status = quoteStatusSnapshot;
+      if (inferenceSnapshot === undefined) {
+        this.inferences.delete(input.inferenceId);
+      } else {
+        this.inferences.set(input.inferenceId, inferenceSnapshot);
+      }
+      if (billingSnapshot === undefined) {
+        this.billingRecords.delete(input.inferenceId);
+      } else {
+        this.billingRecords.set(input.inferenceId, billingSnapshot);
+      }
+      if (idempotencySnapshot === undefined) {
+        this.idempotency.delete(input.idempotencyScope);
+      } else {
+        this.idempotency.set(input.idempotencyScope, idempotencySnapshot);
+      }
+      throw error;
+    }
+  }
+
   private authenticate(apiKey: string): BuyerInternal {
     const key = requireText(apiKey, "apiKey", 512);
     const buyerId = this.buyerIdByApiKeyHash.get(sha256(key));
@@ -604,8 +827,12 @@ export class SandboxMarketplace {
     return endpoint;
   }
 
-  private latestPrice(endpointId: string, model: string): ModelPrice {
-    const matching = this.prices.filter((price) => price.endpointId === endpointId && price.model === model);
+  private latestPrice(endpointId: string, model: string, currency: string): ModelPrice {
+    const matching = this.prices.filter((price) => (
+      price.endpointId === endpointId
+      && price.model === model
+      && price.currency === currency
+    ));
     const price = matching.at(-1);
     if (price === undefined) {
       throw new DomainError("MODEL_PRICE_NOT_FOUND", "model price was not found");
@@ -656,40 +883,66 @@ export class SandboxMarketplace {
     businessKey: string,
     postings: ReadonlyArray<{ account: string; direction: Direction; amount: bigint }>,
   ): LedgerJournal {
-    if (postings.length < 2 || postings.some((posting) => posting.amount < 0n)) {
-      throw new DomainError("INVALID_MONEY", "ledger journal postings are invalid");
+    const journal = this.postJournalBatch([{ eventType, currency, businessKey, postings }])[0];
+    if (journal === undefined) {
+      throw new DomainError("LEDGER_IMBALANCE", "ledger journal was not created");
     }
-    const debit = postings
-      .filter((posting) => posting.direction === "DEBIT")
-      .reduce((total, posting) => total + posting.amount, 0n);
-    const credit = postings
-      .filter((posting) => posting.direction === "CREDIT")
-      .reduce((total, posting) => total + posting.amount, 0n);
-    if (debit !== credit) {
-      throw new DomainError("LEDGER_IMBALANCE", "ledger journal is not balanced");
-    }
-    const journal: LedgerJournal = Object.freeze({
-      journalId: identifier("journal"),
-      eventType,
-      currency,
-      businessKey,
-      postings: Object.freeze(postings.map((posting) => Object.freeze({
-        account: posting.account,
-        direction: posting.direction,
-        amountMinor: posting.amount.toString(),
-      }))),
-      createdAt: timestamp(),
-    });
-    for (const posting of postings) {
-      const key = this.accountKey(currency, posting.account);
-      const current = this.accountNetCredits.get(key) ?? 0n;
-      this.accountNetCredits.set(
-        key,
-        posting.direction === "CREDIT" ? current + posting.amount : current - posting.amount,
-      );
-    }
-    this.journals.push(journal);
     return journal;
+  }
+
+  private postJournalBatch(drafts: readonly LedgerJournalDraft[]): readonly LedgerJournal[] {
+    if (drafts.length === 0) {
+      return Object.freeze([]);
+    }
+    const stagedBusinessKeys = new Set(this.journalBusinessKeys);
+    const stagedBalances = new Map(this.accountNetCredits);
+    const stagedJournals: LedgerJournal[] = [];
+
+    for (const draft of drafts) {
+      if (draft.postings.length < 2 || draft.postings.some((posting) => posting.amount <= 0n)) {
+        throw new DomainError("INVALID_MONEY", "ledger journal postings are invalid");
+      }
+      const uniqueBusinessKey = this.accountKey(draft.currency, draft.businessKey);
+      if (stagedBusinessKeys.has(uniqueBusinessKey)) {
+        throw new DomainError("DUPLICATE_BUSINESS_EVENT", "ledger business key already exists");
+      }
+      const debit = draft.postings
+        .filter((posting) => posting.direction === "DEBIT")
+        .reduce((total, posting) => total + posting.amount, 0n);
+      const credit = draft.postings
+        .filter((posting) => posting.direction === "CREDIT")
+        .reduce((total, posting) => total + posting.amount, 0n);
+      if (debit !== credit) {
+        throw new DomainError("LEDGER_IMBALANCE", "ledger journal is not balanced");
+      }
+      const journal: LedgerJournal = Object.freeze({
+        journalId: identifier("journal"),
+        eventType: draft.eventType,
+        currency: draft.currency,
+        businessKey: draft.businessKey,
+        postings: Object.freeze(draft.postings.map((posting) => Object.freeze({
+          account: posting.account,
+          direction: posting.direction,
+          amountMinor: posting.amount.toString(),
+        }))),
+        createdAt: timestamp(),
+      });
+      for (const posting of draft.postings) {
+        const key = this.accountKey(draft.currency, posting.account);
+        const current = stagedBalances.get(key) ?? 0n;
+        stagedBalances.set(
+          key,
+          posting.direction === "CREDIT" ? current + posting.amount : current - posting.amount,
+        );
+      }
+      stagedBusinessKeys.add(uniqueBusinessKey);
+      stagedJournals.push(journal);
+    }
+
+    this.journals = [...this.journals, ...stagedJournals];
+    this.journalBusinessKeys = stagedBusinessKeys;
+    this.accountNetCredits = stagedBalances;
+    return Object.freeze(stagedJournals);
   }
 
   private isBalanced(journal: LedgerJournal): boolean {

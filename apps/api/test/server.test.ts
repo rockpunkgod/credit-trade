@@ -177,7 +177,7 @@ test("buyer quote and inference require Bearer auth and an idempotency key", asy
     const inference = await fetch(
       `${api.baseUrl}/v1/inference`,
       jsonRequest(
-        { quoteId: "quote_test", prompt: "hello" },
+        { quoteId: "quote_test", prompt: "  hello  " },
         { authorization: "Bearer ct_test_api_key", "idempotency-key": "request-0001" },
       ),
     );
@@ -189,7 +189,7 @@ test("buyer quote and inference require Bearer auth and an idempotency key", asy
         input: {
           apiKey: "ct_test_api_key",
           quoteId: "quote_test",
-          prompt: "hello",
+          prompt: "  hello  ",
           idempotencyKey: "request-0001",
         },
       },
@@ -248,6 +248,41 @@ test("unexpected failures and state snapshots do not disclose sensitive values",
     assert.doesNotMatch(stateText, /must-not-leak|apiKeyHash/i);
   } finally {
     await api.close();
+  }
+});
+
+test("internal billing integrity failures are redacted as server failures", async () => {
+  const internalCodes = [
+    "INVALID_RATE",
+    "DUPLICATE_BUSINESS_EVENT",
+    "METER_SCHEMA_MISMATCH",
+    "RATING_POLICY_TAMPERED",
+    "UNPRICED_USAGE",
+    "USAGE_CONFLICT",
+  ];
+
+  for (const code of internalCodes) {
+    const marketplace = marketplaceDouble({
+      infer: (() => {
+        throw Object.assign(new Error("sensitive internal billing detail"), { code });
+      }) as (...args: never[]) => unknown,
+    });
+    const api = await startServer(marketplace);
+    try {
+      const failed = await fetch(
+        `${api.baseUrl}/v1/inference`,
+        jsonRequest(
+          { quoteId: "quote_test", prompt: "hello" },
+          { authorization: "Bearer ct_test_api_key", "idempotency-key": `internal-${code}` },
+        ),
+      );
+      assert.equal(failed.status, 500);
+      const failedText = await failed.text();
+      assert.match(failedText, /INTERNAL_ERROR/);
+      assert.doesNotMatch(failedText, /sensitive|billing detail/i);
+    } finally {
+      await api.close();
+    }
   }
 });
 

@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-30 (Asia/Shanghai)
+Last updated: 2026-08-31 (Asia/Shanghai)
 
 ## Current status
 
@@ -8,7 +8,7 @@ Last updated: 2026-08-30 (Asia/Shanghai)
 - GitHub visibility: **private** (confirmed by the user on 2026-08-30). Public publication is prohibited.
 - Lifecycle state: `SANDBOX` for the market-neutral local build; every real market remains `DESIGN_ONLY`.
 - Release state: no RC or GA exists; no completion-state claim is applicable yet.
-- Code status: initial in-memory TypeScript sandbox implemented and exercised through the HTTP API.
+- Code status: the in-memory TypeScript sandbox includes an independent versioned meter/rating module, quote-bound pricing digests, exact rational rates, immutable usage/rating digests, atomic rollback-protected inference journal batches and billing records linked to applicable ledger journals when financial postings exist; it is exercised through the existing HTTP API.
 - Payment status: synthetic buyer funding, hold, settlement and release are implemented in an in-memory balanced ledger. No payment-provider sandbox is integrated or verified.
 - GitHub status: private repository `rockpunkgod/credit-trade` and remote `main` are verified. No tag or GitHub Release has been created.
 - Legal/operational status: no market has supplied the evidence required for real-money operation.
@@ -18,9 +18,9 @@ The product is an authorized API inference-service marketplace. It is not a mark
 
 ## Product flow change — 2026-08-30
 
-The supplier now registers an API endpoint that it controls. The platform safely classifies the endpoint protocol, operator, upstream vendor and canonical model, verifies account control and written authorization, binds an approved versioned supplier price, and only then publishes a buyer-facing inference-service offer.
+The product flow now begins with a supplier-provided API endpoint. The production design requires the platform to classify the endpoint protocol, operator, upstream vendor and canonical model, verify account control and written authorization, bind an approved versioned supplier price, and only then publish a buyer-facing inference-service offer. The current sandbox only recognizes two mock endpoints and pins synthetic prices; it does not verify account control or written authorization.
 
-Technical identification does not establish authorization or price authority. Unknown vendors and endpoints stay open for registration, draft pricing and sandbox work as `PENDING_REVIEW`; they are not presumed prohibited. Conflicting or unsafe endpoints are quarantined, and only explicit evidence creates `PROHIBITED`. None can generate a production route or real payment before approval.
+Technical identification does not establish authorization or price authority. Unknown vendors and endpoints stay open for registration, draft pricing and sandbox work as `PENDING_REVIEW`; they are not presumed prohibited. Conflicting identities remain registered but non-routable, while syntactically unsafe endpoint URLs are rejected. The explicit `PROHIBITED` evidence lifecycle is not implemented yet. None can generate a production route or real payment before approval.
 
 ## Phase progress
 
@@ -29,11 +29,11 @@ Technical identification does not establish authorization or price authority. Un
 | 0 — Baseline | Complete locally | `docs/phase-0-baseline.md`; local Git repository and SHA-256 evidence manifest |
 | 1 — Admission research | Not started | Official-source vendor/account/resale/region evidence matrices reviewed and hashed |
 | 2 — Requirements and architecture freeze | Draft updated; not frozen | Supplier endpoint registry, identification/evidence separation and pricing flow drafted; Phase 1 evidence, PRD, API, ledger and threat-model review pending |
-| 3 — Sandbox vertical slice | Initial slice complete | Mock endpoint registration, vendor identification, price, buyer quote, hold, inference, usage, settlement and release executed; payout/refund/chargeback remain pending |
-| 4 — Shared core | Partial | In-memory supplier, endpoint, buyer API key, quote, metering and ledger core implemented; persistence, RBAC/MFA, streaming and full controls pending |
-| 5 — Payment and settlement adapters | Not started | Sandbox webhooks and fail-closed production gate verified |
+| 3 — Sandbox vertical slice | Initial slice complete | Mock endpoint registration, vendor identification, price, buyer quote, versioned metering/rating, hold, inference, settlement and release executed; payout/refund/chargeback remain pending |
+| 4 — Shared core | Partial | In-memory supplier, endpoint, buyer API key, quote, exact metering/rating and ledger core implemented; persistence, RBAC/MFA, streaming and full controls pending |
+| 5 — Payment and settlement adapters | Not started | No PSP sandbox, webhook or production payment adapter is implemented |
 | 6 — Market packages | Not started | Independently built market artifacts |
-| 7 — Test program | Initial suite passing | 16 Node tests pass; complete Phase 7 matrix and dedicated scanners remain pending |
+| 7 — Test program | Initial suite passing | 35 Node tests pass; complete Phase 7 matrix and dedicated scanners remain pending |
 | 8 — Release preparation | Not started | SBOM, provenance, hashes, runbooks, scans |
 | 9 — Release Candidate | Not started | Remote prerelease exists and RC gates pass |
 | 10 — External approvals and live pilot | Blocked externally | Required evidence, production accounts, and explicit amount authorization |
@@ -53,14 +53,14 @@ Technical identification does not establish authorization or price authority. Un
 
 ## Initial sandbox verification
 
-- Standard test command: 16 passed, 0 failed.
+- Standard test command: 35 passed, 0 failed.
 - End-to-end HTTP demo: passed.
 - Detected mock vendor: `ACME_AI`.
 - Unknown-vendor policy: `PENDING_REVIEW`.
 - Real provider used: no.
 - Production payment available: no.
 - Ledger result: balanced, four journals in the demo flow.
-- Independent static TypeScript typecheck: not run because `tsc` is not installed; Node 24 syntax checks passed.
+- Independent static TypeScript typecheck: not run because `tsc` is not installed; Node 24 syntax checks pass for all source entry points.
 
 ## Phase 0 assumptions
 
@@ -75,7 +75,7 @@ Technical identification does not establish authorization or price authority. Un
 
 ## Immediate next work
 
-The code-first next slice is persistence, automatic eligible-offer routing, streaming/cancellation and the remaining simulated settlement/refund paths. Official-source review remains deferred per current priority; until it is performed, unknown vendors remain registered as `PENDING_REVIEW` and all production paths stay unavailable.
+The code-first next slice is persistence and transactional recovery for usage/rating/ledger records, provider-authoritative usage finalization and variance handling, automatic eligible-offer routing, streaming/cancellation and the remaining simulated settlement/refund paths. Official-source review remains deferred per current priority; until it is performed, unknown vendors remain registered as `PENDING_REVIEW` and all production paths stay unavailable.
 
 ## Recovery point
 

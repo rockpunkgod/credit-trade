@@ -49,6 +49,7 @@ const DOMAIN_ERROR_STATUS: Readonly<Record<string, number>> = Object.freeze({
   ENDPOINT_NOT_SANDBOX_USABLE: 422,
   NO_ELIGIBLE_ROUTE: 422,
   QUOTE_LIMIT_EXCEEDED: 422,
+  USAGE_LIMIT_EXCEEDED: 422,
 });
 
 function setCommonHeaders(response: ServerResponse, requestId: string): void {
