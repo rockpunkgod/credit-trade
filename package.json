@@ -10,9 +10,9 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "check": "node --experimental-strip-types --check packages/core/src/errors.ts && node --experimental-strip-types --check packages/core/src/billing/contracts.ts && node --experimental-strip-types --check packages/core/src/billing/calculator.ts && node --experimental-strip-types --check packages/core/src/billing/sandbox-meter.ts && node --experimental-strip-types --check packages/core/src/billing/index.ts && node --experimental-strip-types --check packages/core/src/index.ts && node --experimental-strip-types --check apps/api/src/server.ts && node --experimental-strip-types --check apps/api/src/main.ts && node --experimental-strip-types --check scripts/demo.ts",
+    "check": "node --experimental-strip-types --check packages/core/src/errors.ts && node --experimental-strip-types --check packages/core/src/billing/contracts.ts && node --experimental-strip-types --check packages/core/src/billing/calculator.ts && node --experimental-strip-types --check packages/core/src/billing/sandbox-meter.ts && node --experimental-strip-types --check packages/core/src/billing/integrity.ts && node --experimental-strip-types --check packages/core/src/billing/index.ts && node --experimental-strip-types --check packages/core/src/index.ts && node --experimental-strip-types --check apps/api/src/server.ts && node --experimental-strip-types --check apps/api/src/main.ts && node --experimental-strip-types --check scripts/demo.ts",
     "start": "node --experimental-strip-types apps/api/src/main.ts",
     "demo": "node --experimental-strip-types scripts/demo.ts",
-    "test": "node --experimental-strip-types --test packages/core/test/billing-metering.test.ts packages/core/test/sandbox.test.ts apps/api/test/server.test.ts"
+    "test": "node --experimental-strip-types --test packages/core/test/billing-metering.test.ts packages/core/test/integrity.test.ts packages/core/test/integrity-integration.test.ts packages/core/test/sandbox.test.ts apps/api/test/server.test.ts"
   }
 }

@@ -11,6 +11,16 @@ info:
     Missing or unreviewed vendor and market evidence remains PENDING_REVIEW.
     PROHIBITED is reserved for a prohibition explicit in a current official
     source; neither status enables production operation.
+
+    Internal synthetic supplier and buyer/API-key-hash records, platform
+    fee/quote-lifetime policy, provider endpoint, versioned supply price, quote,
+    usage, rating, currency-ledger checkpoint and settlement bindings use
+    process-local HMAC integrity seals. Price versions also have local stream
+    heads. Idempotency requests use an opaque HMAC authentication code and replays
+    are reconstructed from canonical authenticated records. These controls are
+    neither encryption, configuration approval, real KYB, provider evidence nor
+    public digital signatures, and no seal, code, checkpoint, key identifier or
+    key material is added to the HTTP response fields defined here.
 servers:
   - url: http://127.0.0.1:3000
     description: Default local process
@@ -46,7 +56,7 @@ paths:
       tags: [Sandbox setup]
       operationId: createSandboxSupplier
       summary: Create a synthetic supplier
-      description: Creates an in-memory sandbox record; it does not perform real KYB.
+      description: Creates an in-memory sandbox record whose exact fixture fields are internally HMAC sealed; this does not perform or prove real KYB.
       requestBody:
         required: true
         content:
@@ -75,8 +85,12 @@ paths:
       summary: Register a supplier endpoint and its model price
       description: |
         Registers an endpoint and publishes one exact string-denominated sandbox
-        model price. Only built-in mock schemes can complete inference. Registering
-        or identifying an endpoint is not vendor authorization or market admission.
+        model price. Their complete internal records are separately HMAC sealed,
+        later price versions are predecessor-linked, and a local price-stream head
+        detects newest-version deletion while the head remains intact. These seals
+        and the head are not returned.
+        Only built-in mock schemes can complete inference. Registering, identifying
+        or sealing an endpoint is not vendor authorization or market admission.
       parameters:
         - $ref: '#/components/parameters/SupplierId'
       requestBody:
@@ -110,7 +124,9 @@ paths:
       description: |
         The initial balance is an in-memory accounting fixture, not money, stored
         value, a transferable wallet, or payment-provider sandbox funding. The raw
-        API key appears only in this response.
+        API key appears only in this response. The internal buyer record seals the
+        stored API-key hash, and its buyer/hash index is verified bidirectionally;
+        neither the hash nor its seal is returned, and this is not identity proof.
       requestBody:
         required: true
         content:
@@ -137,7 +153,11 @@ paths:
       tags: [Inference]
       operationId: createQuote
       summary: Create a buyer-bound versioned quote with a maximum hold amount
-      description: Calculates the maximum hold amount but does not post a hold journal until inference starts.
+      description: |
+        Calculates the maximum hold amount but does not post a hold journal until
+        inference starts. Endpoint and supply-price seals are verified first; the
+        complete internal quote/rating-policy binding names the selected price seal
+        as its parent. No integrity seal is returned by this API.
       security:
         - bearerAuth: []
       requestBody:
@@ -176,7 +196,14 @@ paths:
       tags: [Inference]
       operationId: runInference
       summary: Execute one quote-bound synthetic inference
-      description: The sandbox never sends the prompt to a real provider.
+      description: |
+        The sandbox never sends the prompt to a real provider. Internal usage,
+        rating, delivered-output digest, complete linked-ledger content, currency
+        checkpoint and settlement-chain bindings are authenticated and verified
+        before the result is accepted. An internal HMAC request code protects
+        idempotency replay, which is matched to canonical billing/inference records
+        instead of an unauthenticated cached response. This does not make estimated
+        usage provider-authoritative, and no buyer-verifiable proof is returned.
       security:
         - bearerAuth: []
       parameters:
@@ -215,7 +242,7 @@ paths:
       tags: [Sandbox inspection]
       operationId: getSandboxState
       summary: Read a redacted in-memory domain snapshot
-      description: API keys, hashes, credentials, authorization fields, secrets, and prompts are removed.
+      description: API keys, hashes, credentials, authorization fields, secrets, prompts, integrity seals, authentication tags, integrity key identifiers and key material are removed.
       responses:
         '200':
           description: Redacted sandbox state.
@@ -232,6 +259,7 @@ paths:
       tags: [Sandbox inspection]
       operationId: getSandboxLedger
       summary: Read the redacted balanced sandbox ledger
+      description: The endpoint/price catalog, canonical billing records, complete currency-level journal checkpoints and balances replayed from all postings are verified before the ledger is returned; integrity seals, checkpoints and key information are not included in the response.
       responses:
         '200':
           description: Ledger snapshot; balanced is true only when every journal balances.
@@ -332,7 +360,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
     InternalError:
-      description: Redacted unexpected failure.
+      description: Redacted unexpected failure, including an internal integrity-verification failure.
       content:
         application/json:
           schema:
@@ -454,6 +482,7 @@ components:
           maxLength: 32768
     Supplier:
       type: object
+      description: Synthetic supplier fixture. Its exact internal ID, name, SANDBOX_FIXTURE status and creation time are HMAC sealed, but the seal is absent from this HTTP shape and is not real KYB evidence.
       additionalProperties: false
       required: [supplierId, name, kybStatus, createdAt]
       properties:
@@ -470,6 +499,7 @@ components:
           format: date-time
     Endpoint:
       type: object
+      description: Supplier endpoint snapshot. The exact internal snapshot is HMAC sealed and verified before use, but the seal is absent from this HTTP shape and does not prove provider control or authorization.
       additionalProperties: false
       required:
         - endpointId
@@ -505,6 +535,7 @@ components:
           format: date-time
     Price:
       type: object
+      description: Versioned synthetic supply price. Internal versions are HMAC sealed and predecessor-linked per supplier, endpoint, model and currency; a separate process-local stream head detects deletion of the newest version while that head remains intact. Seals and heads are absent from this HTTP shape and are not externally anchored.
       additionalProperties: false
       required:
         - priceId
@@ -540,6 +571,7 @@ components:
           format: date-time
     Buyer:
       type: object
+      description: Synthetic buyer snapshot. The internal record HMAC seals its metadata and stored API-key hash and verifies the buyer/hash index in both directions; neither hash nor seal appears here, and the seal does not prove raw-key possession or identity.
       additionalProperties: false
       required:
         - buyerId
@@ -576,7 +608,7 @@ components:
       additionalProperties: false
     Quote:
       type: object
-      description: Buyer quote with immutable pricing and limit terms. Creation calculates the maximum hold but does not move funds; the sandbox internally pins the meter and rating policy versions used at inference time. Operational status can move from ISSUED to USED.
+      description: Buyer quote with immutable pricing and limit terms. Creation calculates the maximum hold but does not move funds; before creation the sandbox verifies a startup seal over the billing-policy version, platform fee and quote lifetime, then pins the selected supply-price seal and authenticates the meter/rating-policy binding used at inference time. The platform-policy seal detects unsealed in-process configuration edits but is not production configuration approval. Exact Map and record coverage requires the quote key/ID and USED status to correspond to one settled inference. Internal seals are deliberately absent from this public shape.
       additionalProperties: false
       required:
         - quoteId
@@ -645,7 +677,7 @@ components:
           enum: [ISSUED, USED]
     Usage:
       type: object
-      description: Deterministic sandbox-estimated input and actually delivered output tokens. This is not authoritative provider usage or invoice evidence; totalTokens remains inputTokens plus outputTokens.
+      description: Deterministic sandbox-estimated input and actually delivered output tokens. The corresponding internal record is integrity-sealed, but that authenticates platform content rather than proving measurement truth. This is not authoritative provider usage or invoice evidence; totalTokens remains inputTokens plus outputTokens.
       additionalProperties: false
       required: [inputTokens, outputTokens, totalTokens]
       properties:
@@ -657,7 +689,7 @@ components:
           $ref: '#/components/schemas/DecimalInteger'
     Inference:
       type: object
-      description: Synchronously metered, rated and ledger-settled synthetic inference result. The existing flat amount fields remain the public sandbox contract; internal usage and rating records are not buyer-submittable resources.
+      description: Synchronously metered, rated and ledger-settled synthetic inference result. Canonical verification reconstructs these fields from the authenticated quote, usage, rating, delivered-output digest, journal links and settlement, while idempotent replay validates an opaque internal HMAC request code. The existing flat fields remain the public contract; internal records, codes, checkpoints and seals are not buyer-submittable or HTTP-visible. These controls are not encryption, a public signature or provider attestation.
       additionalProperties: false
       required:
         - sandbox
@@ -747,6 +779,7 @@ components:
           format: date-time
     Ledger:
       type: object
+      description: Public journal view returned only after all journals have been replayed into balances and the internal per-currency HMAC checkpoint histories have verified. Checkpoints and materialized balances are not added to this response shape.
       additionalProperties: false
       required: [balanced, journals]
       properties:

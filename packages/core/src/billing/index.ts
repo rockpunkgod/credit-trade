@@ -31,3 +31,18 @@ export {
   meterSandboxText,
   truncateTextToEstimatedTokenLimit,
 } from "./sandbox-meter.ts";
+
+export {
+  HmacIntegrityKeyring,
+  INTEGRITY_SCHEME,
+  createEphemeralHmacIntegrityKeyring,
+  digestIntegrityContent,
+  integritySealDigest,
+  type HmacIntegrityKeyInput,
+  type IntegrityChainLink,
+  type IntegrityAuthenticationCode,
+  type IntegrityPurpose,
+  type IntegrityScope,
+  type IntegritySeal,
+  type IntegrityStatement,
+} from "./integrity.ts";

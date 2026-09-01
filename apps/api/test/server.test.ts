@@ -15,7 +15,16 @@ function marketplaceDouble(overrides: Partial<Record<string, (...args: never[]) 
     createBuyer: (input: JsonRecord) => ({ buyerId: "buyer_test", apiKey: "ct_test_api_key", ...input }),
     createQuote: (input: JsonRecord) => ({ quoteId: "quote_test", ...input }),
     infer: (input: JsonRecord) => ({ inferenceId: "inference_test", output: "sandbox output", ...input }),
-    getState: () => ({ apiKeyHash: "must-not-leak", buyers: [{ buyerId: "buyer_test" }] }),
+    getState: () => ({
+      apiKeyHash: "must-not-leak",
+      integrityKey: "must-not-leak-integrity-key",
+      keyMaterial: "must-not-leak-key-material",
+      privateKey: "must-not-leak-private-key",
+      integritySeal: "must-not-leak-integrity-seal",
+      authenticationTag: "must-not-leak-authentication-tag",
+      requestAuthentication: { keyId: "must-not-leak-key-id" },
+      buyers: [{ buyerId: "buyer_test" }],
+    }),
     getLedger: () => ({ balanced: true, journals: [] }),
   };
 
@@ -245,7 +254,10 @@ test("unexpected failures and state snapshots do not disclose sensitive values",
     const state = await fetch(`${api.baseUrl}/sandbox/state`);
     const stateText = await state.text();
     assert.equal(state.status, 200);
-    assert.doesNotMatch(stateText, /must-not-leak|apiKeyHash/i);
+    assert.doesNotMatch(
+      stateText,
+      /must-not-leak|apiKeyHash|integrityKey|keyMaterial|privateKey|integritySeal|authenticationTag/i,
+    );
   } finally {
     await api.close();
   }
@@ -255,6 +267,8 @@ test("internal billing integrity failures are redacted as server failures", asyn
   const internalCodes = [
     "INVALID_RATE",
     "DUPLICATE_BUSINESS_EVENT",
+    "INTEGRITY_KEY_UNAVAILABLE",
+    "INTEGRITY_PROOF_INVALID",
     "METER_SCHEMA_MISMATCH",
     "RATING_POLICY_TAMPERED",
     "UNPRICED_USAGE",

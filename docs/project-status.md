@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-31 (Asia/Shanghai)
+Last updated: 2026-09-01 (Asia/Shanghai)
 
 ## Current status
 
@@ -8,7 +8,8 @@ Last updated: 2026-08-31 (Asia/Shanghai)
 - GitHub visibility: **private** (confirmed by the user on 2026-08-30). Public publication is prohibited.
 - Lifecycle state: `SANDBOX` for the market-neutral local build; every real market remains `DESIGN_ONLY`.
 - Release state: no RC or GA exists; no completion-state claim is applicable yet.
-- Code status: the in-memory TypeScript sandbox includes an independent versioned meter/rating module, quote-bound pricing digests, exact rational rates, immutable usage/rating digests, atomic rollback-protected inference journal batches and billing records linked to applicable ledger journals when financial postings exist; it is exercised through the existing HTTP API.
+- Code status: the in-memory TypeScript sandbox includes an independent versioned meter/rating module, exact rational rates, content-digest-bound records and process-local domain-separated HMAC coverage for synthetic supplier/KYB-fixture records, buyer metadata/API-key hashes, platform fee/quote-lifetime policy, provider endpoints, version-linked supply prices, quote policy, usage, rating, complete inference-ledger content, full currency-ledger checkpoints and settlement. It also includes exact buyer/API-key-hash and quote/idempotency Map coverage, price-stream heads, locale-independent balance-digest ordering, balance replay, business-key reconstruction, an opaque HMAC idempotency request code, canonical inference/record coverage, currency-scoped settlement chains/heads and rollback-protected journal/checkpoint batches. Existing HTTP response fields remain unchanged.
+- Integrity status: full policy/identity/catalog/ledger/billing verification runs before endpoint registration, price publication, buyer funding, quote creation and inference, so detected historical tampering blocks new billing mutations. Tests cover platform fee/quote-lifetime state edits, supplier/KYB-fixture and buyer/API-key-hash attribution changes, catalog and record/scope changes, forged Map placement, sparse/decorated arrays, funding and inference-ledger forgery, materialized-balance changes, idempotency replay, quote consumption/coverage, latest-price deletion and settlement/checkpoint deletion or ordering changes while the active HMAC keys, policy seal, local heads and checkpoint histories remain trusted. Buyer creation also leaves no identity, hash-index, journal or checkpoint residue in the tested checkpoint-signing failure. This is not encryption, a digital signature, configuration approval, authoritative provider metering or durable audit evidence. The default key, seals, heads and checkpoints are ephemeral; endpoints have no independent externally anchored inventory head, and KMS/HSM custody, persistent key rotation/history, external anchors and append-only/WORM storage are not implemented.
 - Payment status: synthetic buyer funding, hold, settlement and release are implemented in an in-memory balanced ledger. No payment-provider sandbox is integrated or verified.
 - GitHub status: private repository `rockpunkgod/credit-trade` and remote `main` are verified. No tag or GitHub Release has been created.
 - Legal/operational status: no market has supplied the evidence required for real-money operation.
@@ -29,11 +30,11 @@ Technical identification does not establish authorization or price authority. Un
 | 0 — Baseline | Complete locally | `docs/phase-0-baseline.md`; local Git repository and SHA-256 evidence manifest |
 | 1 — Admission research | Not started | Official-source vendor/account/resale/region evidence matrices reviewed and hashed |
 | 2 — Requirements and architecture freeze | Draft updated; not frozen | Supplier endpoint registry, identification/evidence separation and pricing flow drafted; Phase 1 evidence, PRD, API, ledger and threat-model review pending |
-| 3 — Sandbox vertical slice | Initial slice complete | Mock endpoint registration, vendor identification, price, buyer quote, versioned metering/rating, hold, inference, settlement and release executed; payout/refund/chargeback remain pending |
-| 4 — Shared core | Partial | In-memory supplier, endpoint, buyer API key, quote, exact metering/rating and ledger core implemented; persistence, RBAC/MFA, streaming and full controls pending |
+| 3 — Sandbox vertical slice | Initial slice complete | Mock supplier/buyer creation, endpoint registration, vendor identification, version-linked price, buyer quote, versioned metering/rating, authenticated identity/catalog-to-settlement linkage, whole-ledger checkpoint, hold, inference, settlement and release executed; payout/refund/chargeback remain pending |
+| 4 — Shared core | Partial | In-memory sealed platform fee/quote-lifetime policy, supplier/buyer identity, endpoint/price catalog with price-stream heads, buyer API-key-hash attribution, quote, exact metering/rating and Map coverage, balance-replayed ledger checkpoints, HMAC keyring/request authentication, canonical record coverage and settlement-chain core implemented; authorized configuration management, durable persistence/key custody, RBAC/MFA, streaming and full controls pending |
 | 5 — Payment and settlement adapters | Not started | No PSP sandbox, webhook or production payment adapter is implemented |
 | 6 — Market packages | Not started | Independently built market artifacts |
-| 7 — Test program | Initial suite passing | 35 Node tests pass; complete Phase 7 matrix and dedicated scanners remain pending |
+| 7 — Test program | Initial suite passing | 64 Node tests pass, including integrity framing, domain/scope separation, key rotation, opaque request authentication, platform fee/quote-lifetime edits, supplier/buyer/endpoint/price edits, API-key-hash and Map-key attribution, sparse/decorated arrays, digest recomputation, seal transplantation, price-stream-head tail deletion, full-ledger checkpoints/balance replay, preflight circuit breaking, canonical replay, quote/record coverage, chain deletion/reordering and rollback cases; complete Phase 7 matrix and dedicated scanners remain pending |
 | 8 — Release preparation | Not started | SBOM, provenance, hashes, runbooks, scans |
 | 9 — Release Candidate | Not started | Remote prerelease exists and RC gates pass |
 | 10 — External approvals and live pilot | Blocked externally | Required evidence, production accounts, and explicit amount authorization |
@@ -53,7 +54,8 @@ Technical identification does not establish authorization or price authority. Un
 
 ## Initial sandbox verification
 
-- Standard test command: 35 passed, 0 failed.
+- Standard test command: 64 passed, 0 failed.
+- Authenticated-integrity verification: platform fee/quote-lifetime policy, synthetic supplier/KYB fixture, buyer/API-key-hash attribution, provider endpoint, versioned supply-price chains/heads, quote policy, usage, rating, full ordered inference batch, locale-independently ordered currency-ledger checkpoints with replayed balances, idempotency request code and exact Map key, canonical inference/record coverage and settlement chain passed; test-only configuration/record tampering, sparse/decorated arrays, transplant, tail/middle deletion, reordering, unknown-key and commit/checkpoint-signing failure cases were rejected.
 - End-to-end HTTP demo: passed.
 - Detected mock vendor: `ACME_AI`.
 - Unknown-vendor policy: `PENDING_REVIEW`.
@@ -75,7 +77,7 @@ Technical identification does not establish authorization or price authority. Un
 
 ## Immediate next work
 
-The code-first next slice is persistence and transactional recovery for usage/rating/ledger records, provider-authoritative usage finalization and variance handling, automatic eligible-offer routing, streaming/cancellation and the remaining simulated settlement/refund paths. Official-source review remains deferred per current priority; until it is performed, unknown vendors remain registered as `PENDING_REVIEW` and all production paths stay unavailable.
+The code-first next slice is persistence and transactional recovery for identity/catalog/usage/rating/ledger/checkpoint/chain records, production-grade KMS/HSM key custody and durable historical verification, external supplier/endpoint inventory plus price/settlement-head and ledger-checkpoint anchoring, append-only/WORM retention, provider-authoritative usage finalization and variance handling, automatic eligible-offer routing, streaming/cancellation and the remaining simulated settlement/refund paths. Official-source review remains deferred per current priority; until it is performed, unknown vendors remain registered as `PENDING_REVIEW` and all production paths stay unavailable.
 
 ## Recovery point
 

@@ -285,7 +285,7 @@ function redactSnapshot(value: unknown): unknown {
 
   const redacted: JsonObject = {};
   for (const [key, nested] of Object.entries(value)) {
-    if (/^(?:api.?key(?:hash)?|credential(?:secret)?ref|secret|authorizationHeader|prompt)$/i.test(key)) {
+    if (/^(?:api.?key(?:hash)?|credential(?:secret)?ref|secret|authorizationHeader|prompt|(?:integrity|hmac|signing|metering).?key(?:ring|material|id)?|key.?material|private.?key|integrity.?seal|authentication.?tag|request.?authentication)$/i.test(key)) {
       continue;
     }
     redacted[key] = redactSnapshot(nested);

@@ -315,9 +315,10 @@ test("quote fails closed when its frozen rating policy is swapped", async () => 
   });
   const policies = Reflect.get(marketplace, "quoteRatingPolicies") as Map<string, unknown>;
   const firstPolicy = policies.get(firstQuote.quoteId);
-  assert.ok(firstPolicy !== undefined);
-  policies.set(secondQuote.quoteId, firstPolicy);
+  const secondPolicy = policies.get(secondQuote.quoteId);
+  assert.ok(firstPolicy !== undefined && secondPolicy !== undefined);
   const ledgerBefore = await marketplace.getLedger();
+  policies.set(secondQuote.quoteId, firstPolicy);
 
   await assert.rejects(
     marketplace.infer({
@@ -328,6 +329,19 @@ test("quote fails closed when its frozen rating policy is swapped", async () => 
     }),
     (error: unknown) => error instanceof DomainError && error.code === "RATING_POLICY_TAMPERED",
   );
+  await assert.rejects(
+    marketplace.getLedger(),
+    (error: unknown) => error instanceof DomainError && error.code === "RATING_POLICY_TAMPERED",
+  );
+  await assert.rejects(
+    marketplace.getBillingRecords(),
+    (error: unknown) => error instanceof DomainError && error.code === "RATING_POLICY_TAMPERED",
+  );
+  await assert.rejects(
+    marketplace.getState(),
+    (error: unknown) => error instanceof DomainError && error.code === "RATING_POLICY_TAMPERED",
+  );
+  policies.set(secondQuote.quoteId, secondPolicy);
   assert.deepEqual(await marketplace.getLedger(), ledgerBefore);
   assert.equal((await marketplace.getBillingRecords()).records.length, 0);
   const state = await marketplace.getState();
